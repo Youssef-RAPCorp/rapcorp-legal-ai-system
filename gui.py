@@ -969,7 +969,7 @@ class LegalAIApp(ctk.CTk):
 
             if export_fmt != "none":
                 try:
-                    _export_research(result, query, state_str, "general", mode, export_fmt)
+                    _export_research(result, query, state_str, "general", "standard", export_fmt)
                 except Exception as exc:
                     response += f"\n\n[Export warning: {exc}]"
 
