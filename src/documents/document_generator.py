@@ -117,6 +117,69 @@ class DocumentGenerator:
             lines += ["", "KEY FINDINGS:"] + [f"  • {f}" for f in analysis.key_findings]
         return "\n".join(lines)
 
+    def _caption_block(self, plan: Dict, state: USState, doc_title: str = "") -> str:
+        """
+        Return a required caption instruction injected into every document
+        prompt, enforcing the standard two-column bracket-style court heading.
+
+        Layout:
+          Left column  (~44 chars) — party / matter lines
+          Centre column            — vertical ) characters
+          Right column             — Case No., Division, Judge
+        """
+        court = plan.get("court_name", "[COURT NAME]").upper()
+        title = (doc_title or plan.get("petition_type", "[DOCUMENT TITLE]")).upper()
+
+        return f"""REQUIRED CAPTION FORMAT
+=======================
+Your document MUST open with the official two-column bracket-style court caption.
+Left column: party / matter lines (pad each line to ~44 characters).
+Centre:      a ) on every line.
+Right column: Case No. on the third or fourth line; Division and Judge if known.
+After the caption box, place the document title centred on its own line,
+followed by a row of = signs, then begin the body.
+
+Fill in all placeholders from the case facts. Leave [BRACKETS] only where
+the information is genuinely unknown.
+
+---- GUARDIANSHIP / PROBATE EXAMPLE ----
+
+IN THE COUNTY COURT OF SARPY COUNTY, NEBRASKA
+
+IN THE MATTER OF THE GUARDIANSHIP         )
+AND CONSERVATORSHIP OF:                   )
+YOUSSEF EWEIS,                            )    Case No. PR260000125
+An Alleged Protected Person.              )
+                                          )
+
+        OBJECTION TO PETITION FOR APPOINTMENT OF GUARDIAN AND CONSERVATOR
+
+============================================================
+
+---- CIVIL (PLAINTIFF v. DEFENDANT) EXAMPLE ----
+
+IN THE DISTRICT COURT OF DOUGLAS COUNTY, NEBRASKA
+
+JOHN DOE,                                 )
+                                          )
+         Plaintiff,                       )    Case No. CI 26-1234
+                                          )
+    vs.                                   )    Division [  ]
+                                          )
+JANE SMITH,                               )    Judge: [JUDGE NAME]
+                                          )
+         Defendant.                       )
+
+                        COMPLAINT FOR DAMAGES
+
+============================================================
+
+Now produce the actual document for this case.
+Court: {court}
+Document title: {title}
+Use the case facts below to fill in the party / matter lines and case number.
+"""
+
     def _chain_block_for_prompt(self, analysis: EvidenceAnalysisResult) -> str:
         """
         Return the chain-of-events narrative for inclusion in document prompts.
@@ -341,7 +404,8 @@ Order documents by priority (1 = must file first)."""
             statutes_block = "\n\nKEY STATUTES TO CITE (always include these with their full section numbers in the Legal Claims section — never replace with a generic reference to 'state law'):\n"
             statutes_block += "\n".join(f"  - {s}" for s in key_statutes)
 
-        prompt = f"""Draft a formal {plan['petition_type']} to be filed in the
+        prompt = f"""{self._caption_block(plan, state, doc_info['title'])}
+Draft a formal {plan['petition_type']} to be filed in the
 {plan['court_name']} in {state.value}.
 
 CASE SITUATION:
@@ -392,7 +456,8 @@ Write the complete petition document now:"""
             f"{case_law_context[:3000]}"
         ) if case_law_context else ""
 
-        prompt = f"""Draft a sworn Affidavit of Facts in Support of the {plan['petition_type']}
+        prompt = f"""{self._caption_block(plan, state, doc_info['title'])}
+Draft a sworn Affidavit of Facts in Support of the {plan['petition_type']}
 to be filed in {plan['court_name']}, {state.value}.
 
 CASE SITUATION:
@@ -538,7 +603,8 @@ _______________________________
             statutes_block = "\n\nKEY STATUTES (cite these by full section number in the ORDER items where applicable):\n"
             statutes_block += "\n".join(f"  - {s}" for s in key_statutes)
 
-        prompt = f"""Draft a PROPOSED ORDER for the petitioner/respondent to FILE WITH THE COURT
+        prompt = f"""{self._caption_block(plan, state, doc_info['title'])}
+Draft a PROPOSED ORDER for the petitioner/respondent to FILE WITH THE COURT
 in the matter of {plan['petition_type']} in {plan['court_name']}, {state.value}.
 
 IMPORTANT — WHAT A PROPOSED ORDER IS:
@@ -608,7 +674,8 @@ Write the complete proposed order now:"""
                 strength_block += "\nOPPOSING PARTY ADMISSIONS (cite prominently):\n"
                 strength_block += "\n".join(f"  • {a}" for a in admissions)
 
-        prompt = f"""You are a senior litigation attorney drafting a reply/response document
+        prompt = f"""{self._caption_block(plan, state, doc_info['title'])}
+You are a senior litigation attorney drafting a reply/response document
 for pro se filing in the {plan['court_name']}, {state.value}.
 
 DOCUMENT TO DRAFT: {doc_info['title']}
