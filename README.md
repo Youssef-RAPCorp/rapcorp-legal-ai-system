@@ -31,7 +31,7 @@ A comprehensive Legal AI platform powered by Google's Gemini models with customi
 ```bash
 # Clone the repository
 git clone <your-repo-url>
-cd legal-ai-system
+cd rapcorp-legal-ai-system
 
 # Create virtual environment
 python -m venv venv
@@ -64,7 +64,18 @@ GOOGLE_API_KEY=your_key_here
 
 ## 🏃 Quick Start
 
-### Interactive Demo
+### Desktop GUI (Recommended)
+```bash
+python gui.py
+```
+
+The GUI provides a full visual workflow:
+- **Sidebar** — upload case documents & evidence, select jurisdiction, describe your situation
+- **Progress tab** — live log of the AI pipeline
+- **Generated Documents tab** — open each document directly from the app
+- **Find & Edit tab** — find/replace in Word docs, AI post-processing fix, and one-click Preset Legal Updates (e.g. remove ambiguous diagnostic claims, restore statute citations)
+
+### Interactive Demo (CLI)
 ```bash
 python main.py
 ```
@@ -74,9 +85,24 @@ python main.py
 python main.py --research "What are the elements of breach of contract?"
 ```
 
+Research results are automatically exported as a formatted HTML report and opened in your browser. You can also export as Markdown or JSON:
+```bash
+python main.py --research "statute of limitations Nebraska guardianship" --state NE --export html
+python main.py --research "..." --export md
+python main.py --research "..." --export json
+python main.py --research "..." --export all   # HTML + MD + JSON
+```
+
 ### With State Jurisdiction
 ```bash
 python main.py --research "personal injury statute of limitations" --state CA
+```
+
+### Evidence Analysis & Document Generation (CLI)
+```bash
+python main.py --evidence --state NE \
+    --situation "Description of your case…" \
+    --files evidence1.pdf recording.mp3
 ```
 
 ### System Info
@@ -113,8 +139,9 @@ python scripts/add_state.py --list
 ## 📁 Project Structure
 
 ```
-legal-ai-system/
-├── main.py                      # Main entry point
+rapcorp-legal-ai-system/
+├── gui.py                       # Desktop GUI entry point
+├── main.py                      # CLI entry point
 ├── requirements.txt             # Dependencies
 ├── .env.template               # Environment template
 │

@@ -34,6 +34,11 @@ import asyncio
 import argparse
 import sys
 import os
+import re
+import json
+import webbrowser
+import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict
 
@@ -45,43 +50,202 @@ from configs.config import create_config, USState, LegalDomain
 from src.legal_ai_system import LegalAIOrchestrator, create_legal_ai_system
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# RESEARCH EXPORT HELPERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _md_to_html(text: str) -> str:
+    """Convert common markdown patterns to HTML for research export."""
+    # Escape HTML entities first
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # Code blocks (``` ... ```)
+    text = re.sub(r'```[^\n]*\n(.*?)```', lambda m: f'<pre><code>{m.group(1)}</code></pre>',
+                  text, flags=re.DOTALL)
+    # Inline code
+    text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+    # Headings
+    text = re.sub(r'^### (.+)$', r'<h3>\1</h3>', text, flags=re.MULTILINE)
+    text = re.sub(r'^## (.+)$',  r'<h2>\1</h2>', text, flags=re.MULTILINE)
+    text = re.sub(r'^# (.+)$',   r'<h1>\1</h1>', text, flags=re.MULTILINE)
+    # Bold / italic
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    text = re.sub(r'__(.+?)__',     r'<strong>\1</strong>', text)
+    text = re.sub(r'\*(.+?)\*',     r'<em>\1</em>', text)
+    text = re.sub(r'_(.+?)_',       r'<em>\1</em>', text)
+    # Horizontal rules
+    text = re.sub(r'^[-*_]{3,}\s*$', '<hr>', text, flags=re.MULTILINE)
+    # Blockquotes
+    text = re.sub(r'^&gt;\s?(.+)$', r'<blockquote>\1</blockquote>', text, flags=re.MULTILINE)
+    # Unordered list items (group them)
+    text = re.sub(r'^[-*•] (.+)$', r'<li>\1</li>', text, flags=re.MULTILINE)
+    text = re.sub(r'(<li>.*?</li>\n?)+', lambda m: f'<ul>{m.group(0)}</ul>', text, flags=re.DOTALL)
+    # Ordered list items
+    text = re.sub(r'^\d+\. (.+)$', r'<li>\1</li>', text, flags=re.MULTILINE)
+    # Paragraphs — blank lines become <p> breaks
+    parts = re.split(r'\n{2,}', text)
+    parts = [p.strip() for p in parts if p.strip()]
+    result = []
+    for part in parts:
+        if part.startswith(('<h', '<ul', '<ol', '<pre', '<hr', '<blockquote')):
+            result.append(part)
+        else:
+            result.append(f'<p>{part.replace(chr(10), "<br>")}</p>')
+    return "\n".join(result)
+
+
+_HTML_TEMPLATE = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Legal Research — {query_escaped}</title>
+<style>
+  body {{
+    font-family: Georgia, "Times New Roman", serif;
+    max-width: 900px; margin: 0 auto; padding: 0 24px 48px;
+    color: #1a1a1a; line-height: 1.75; background: #fafafa;
+  }}
+  .banner {{
+    background: #1a3a5c; color: white;
+    padding: 20px 24px; margin: 0 -24px 32px;
+  }}
+  .banner h1 {{ margin: 0; font-size: 1.1em; font-family: sans-serif; font-weight: 700; }}
+  .banner .query {{ margin: 6px 0 0; color: #adc8e8; font-size: 0.95em; font-family: sans-serif; }}
+  h1 {{ font-size: 1.5em; color: #1a3a5c; border-bottom: 2px solid #1a3a5c; padding-bottom: 6px; }}
+  h2 {{ font-size: 1.2em; color: #1a3a5c; border-bottom: 1px solid #ccc; padding-bottom: 4px; margin-top: 28px; }}
+  h3 {{ font-size: 1.05em; color: #2a4a6c; margin-top: 20px; }}
+  strong {{ font-weight: bold; }}
+  em {{ font-style: italic; }}
+  code {{ background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 0.88em; }}
+  pre {{ background: #f0f0f0; padding: 14px 18px; border-radius: 5px; overflow-x: auto; border-left: 3px solid #1a3a5c; }}
+  pre code {{ background: none; padding: 0; }}
+  blockquote {{ border-left: 4px solid #1a3a5c; margin: 16px 0; padding: 4px 16px; color: #444; background: #f4f8fc; }}
+  ul, ol {{ padding-left: 26px; }}
+  li {{ margin: 5px 0; }}
+  hr {{ border: none; border-top: 1px solid #ddd; margin: 24px 0; }}
+  p {{ margin: 10px 0; }}
+  .meta {{
+    margin-top: 40px; padding-top: 14px; border-top: 1px solid #ddd;
+    font-size: 0.82em; font-family: monospace; color: #777;
+  }}
+</style>
+</head>
+<body>
+<div class="banner">
+  <h1>RAPCorp Legal AI — Research Report</h1>
+  <div class="query">{query_escaped}</div>
+</div>
+{body}
+<div class="meta">
+  Jurisdiction: {state} &nbsp;|&nbsp; Domain: {domain} &nbsp;|&nbsp; Mode: {mode}<br>
+  Duration: {duration:.2f}s &nbsp;|&nbsp; Est. Cost: ${cost:.6f}<br>
+  Generated: {timestamp}
+</div>
+</body>
+</html>
+"""
+
+
+def _export_research(result: dict, query: str, state: str, domain: str,
+                     mode: str, fmt: str) -> None:
+    """Save research result in the requested format(s) and open HTML in browser."""
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    out_dir = PROJECT_ROOT / "output" / "research"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    slug = re.sub(r'[^a-z0-9]+', '_', query.lower())[:40].strip('_')
+    base = out_dir / f"{timestamp}_{slug}"
+
+    response_text = result.get("response", "")
+    do_html = fmt in ("html", "all")
+    do_md   = fmt in ("md",   "all")
+    do_json = fmt in ("json", "all")
+
+    if do_md or do_html:
+        md_path = base.with_suffix(".md")
+        md_content = (
+            f"# Legal Research: {query}\n\n"
+            f"**Jurisdiction:** {state} | **Domain:** {domain} | **Mode:** {mode}  \n"
+            f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  \n"
+            f"**Duration:** {result.get('duration_seconds', 0):.2f}s | "
+            f"**Cost:** ${result.get('total_cost', 0):.6f}\n\n---\n\n"
+            + response_text
+        )
+        md_path.write_text(md_content, encoding="utf-8")
+        if do_md:
+            print(f"  Markdown saved → {md_path}")
+
+    if do_html:
+        html_path = base.with_suffix(".html")
+        body_html = _md_to_html(response_text)
+        html = _HTML_TEMPLATE.format(
+            query_escaped=query.replace('"', "&quot;"),
+            body=body_html,
+            state=state, domain=domain, mode=mode,
+            duration=result.get("duration_seconds", 0),
+            cost=result.get("total_cost", 0),
+            timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        html_path.write_text(html, encoding="utf-8")
+        print(f"  HTML report  → {html_path}")
+        webbrowser.open(html_path.as_uri())
+
+    if do_json:
+        json_path = base.with_suffix(".json")
+        payload = {
+            "query": query, "state": state, "domain": domain, "mode": mode,
+            "timestamp": datetime.now().isoformat(),
+            "duration_seconds": result.get("duration_seconds"),
+            "total_cost": result.get("total_cost"),
+            "response": response_text,
+        }
+        json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"  JSON export  → {json_path}")
+
+
 async def run_research(
     query: str,
     state: str = "FED",
     domain: str = "contract",
-    mode: str = "standard"
+    mode: str = "standard",
+    export: str = "html",
 ):
-    """Run a quick research query."""
+    """Run a quick research query and export the result."""
     print(f"\n🔬 Researching: {query}")
     print(f"   Jurisdiction: {state} | Domain: {domain} | Mode: {mode}")
     print("-" * 60)
-    
+
     system = await create_legal_ai_system()
-    
+
     try:
         state_enum = USState(state.upper())
     except ValueError:
         print(f"⚠️ Unknown state: {state}, using Federal")
         state_enum = USState.FEDERAL
-    
+
     try:
         domain_enum = LegalDomain(domain.lower())
     except ValueError:
         print(f"⚠️ Unknown domain: {domain}, using Contract")
         domain_enum = LegalDomain.CONTRACT
-    
+
     result = await system.research(
         query=query,
         state=state_enum,
         domain=domain_enum,
         mode=mode
     )
-    
+
     print("\n📋 RESULT:")
     print("=" * 60)
     print(result["response"])
     print("\n" + "=" * 60)
     print(f"Duration: {result['duration_seconds']:.2f}s | Cost: ${result['total_cost']:.6f}")
+
+    if export != "none":
+        print("\n📄 Exporting…")
+        _export_research(result, query, state, domain, mode, export)
 
 
 async def interactive_mode():
@@ -832,6 +996,10 @@ Examples:
     parser.add_argument("--mode", "-m", default="standard",
                         choices=["quick", "standard", "comprehensive"],
                         help="Research mode (default: standard)")
+    parser.add_argument("--export", default="html",
+                        choices=["html", "md", "json", "all", "none"],
+                        help="Export research result: html (default, opens in browser), "
+                             "md, json, all, or none")
     parser.add_argument("--info", "-i", action="store_true",
                         help="Show system information")
     parser.add_argument("--add-state", "-a", action="store_true",
@@ -963,7 +1131,8 @@ Examples:
             query=args.research,
             state=args.state,
             domain=args.domain,
-            mode=args.mode
+            mode=args.mode,
+            export=args.export,
         ))
         return
 
