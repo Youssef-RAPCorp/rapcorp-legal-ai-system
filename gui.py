@@ -160,12 +160,22 @@ class LegalAIApp(ctk.CTk):
 
         row = 0
 
-        # Logo / title
-        ctk.CTkLabel(
-            sb, text="RAPCorp\nLegal AI",
-            font=ctk.CTkFont(size=22, weight="bold"),
-            justify="center",
-        ).grid(row=row, column=0, padx=20, pady=(22, 6), sticky="ew"); row += 1
+        # Logo
+        _logo_path = PROJECT_ROOT / "RAPCorp-logo.png"
+        try:
+            from PIL import Image as _PILImage
+            _pil_logo = _PILImage.open(_logo_path)
+            _logo_img = ctk.CTkImage(
+                light_image=_pil_logo, dark_image=_pil_logo, size=(180, 180)
+            )
+            ctk.CTkLabel(sb, image=_logo_img, text="").grid(
+                row=row, column=0, pady=(16, 2)); row += 1
+        except Exception:
+            ctk.CTkLabel(
+                sb, text="RAPCorp\nLegal AI",
+                font=ctk.CTkFont(size=22, weight="bold"),
+                justify="center",
+            ).grid(row=row, column=0, padx=20, pady=(22, 6), sticky="ew"); row += 1
 
         ctk.CTkLabel(
             sb, text="Evidence → Documents", text_color="gray60",
