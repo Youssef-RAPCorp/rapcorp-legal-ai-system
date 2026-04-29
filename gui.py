@@ -475,25 +475,16 @@ class LegalAIApp(ctk.CTk):
         # ── Options row ───────────────────────────────────────────────
         opts = ctk.CTkFrame(tab, fg_color="transparent")
         opts.grid(row=r, column=0, padx=12, pady=(0, 6), sticky="ew"); r += 1
-        opts.grid_columnconfigure((0, 1), weight=1)
-
-        ctk.CTkLabel(opts, text="Mode:", anchor="w",
-                     font=ctk.CTkFont(size=11)).grid(
-            row=0, column=0, sticky="w")
-        self._research_mode_var = ctk.StringVar(value="standard")
-        ctk.CTkOptionMenu(opts, variable=self._research_mode_var,
-                          values=["quick", "standard", "comprehensive"],
-                          dynamic_resizing=False).grid(
-            row=1, column=0, padx=(0, 8), sticky="ew")
+        opts.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(opts, text="Export:", anchor="w",
                      font=ctk.CTkFont(size=11)).grid(
-            row=0, column=1, sticky="w")
+            row=0, column=0, sticky="w")
         self._research_export_var = ctk.StringVar(value="html")
         ctk.CTkOptionMenu(opts, variable=self._research_export_var,
                           values=["html", "md", "json", "all", "none"],
                           dynamic_resizing=False).grid(
-            row=1, column=1, padx=(0, 0), sticky="ew")
+            row=1, column=0, sticky="ew")
 
         # ── Run button ────────────────────────────────────────────────
         self._research_btn = ctk.CTkButton(
@@ -932,16 +923,15 @@ class LegalAIApp(ctk.CTk):
         self._research_result_box.configure(state="disabled")
 
         state_str  = self._state_var.get()
-        mode       = self._research_mode_var.get()
         export_fmt = self._research_export_var.get()
 
         threading.Thread(
             target=self._research_thread,
-            args=(query, state_str, mode, export_fmt),
+            args=(query, state_str, export_fmt),
             daemon=True,
         ).start()
 
-    def _research_thread(self, query, state_str, mode, export_fmt):
+    def _research_thread(self, query, state_str, export_fmt):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -959,8 +949,7 @@ class LegalAIApp(ctk.CTk):
                 return await system.research(
                     query=query,
                     state=state_enum,
-                    domain=LegalDomain.CONTRACT,  # unused by the pipeline
-                    mode=mode,
+                    domain=LegalDomain.CONTRACT,
                 )
 
             result = loop.run_until_complete(_run())
