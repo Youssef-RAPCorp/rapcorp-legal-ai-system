@@ -475,36 +475,25 @@ class LegalAIApp(ctk.CTk):
         # ── Options row ───────────────────────────────────────────────
         opts = ctk.CTkFrame(tab, fg_color="transparent")
         opts.grid(row=r, column=0, padx=12, pady=(0, 6), sticky="ew"); r += 1
-        opts.grid_columnconfigure((0, 1, 2), weight=1)
-
-        ctk.CTkLabel(opts, text="Domain:", anchor="w",
-                     font=ctk.CTkFont(size=11)).grid(
-            row=0, column=0, sticky="w")
-        _DOMAINS = ["contract", "tort", "criminal", "family", "employment",
-                    "real_estate", "ip", "corporate", "bankruptcy", "tax",
-                    "civil_rights", "constitutional"]
-        self._research_domain_var = ctk.StringVar(value="civil_rights")
-        ctk.CTkOptionMenu(opts, variable=self._research_domain_var,
-                          values=_DOMAINS, dynamic_resizing=False).grid(
-            row=1, column=0, padx=(0, 8), sticky="ew")
+        opts.grid_columnconfigure((0, 1), weight=1)
 
         ctk.CTkLabel(opts, text="Mode:", anchor="w",
                      font=ctk.CTkFont(size=11)).grid(
-            row=0, column=1, sticky="w")
+            row=0, column=0, sticky="w")
         self._research_mode_var = ctk.StringVar(value="standard")
         ctk.CTkOptionMenu(opts, variable=self._research_mode_var,
                           values=["quick", "standard", "comprehensive"],
                           dynamic_resizing=False).grid(
-            row=1, column=1, padx=(0, 8), sticky="ew")
+            row=1, column=0, padx=(0, 8), sticky="ew")
 
         ctk.CTkLabel(opts, text="Export:", anchor="w",
                      font=ctk.CTkFont(size=11)).grid(
-            row=0, column=2, sticky="w")
+            row=0, column=1, sticky="w")
         self._research_export_var = ctk.StringVar(value="html")
         ctk.CTkOptionMenu(opts, variable=self._research_export_var,
                           values=["html", "md", "json", "all", "none"],
                           dynamic_resizing=False).grid(
-            row=1, column=2, padx=(0, 0), sticky="ew")
+            row=1, column=1, padx=(0, 0), sticky="ew")
 
         # ── Run button ────────────────────────────────────────────────
         self._research_btn = ctk.CTkButton(
@@ -943,17 +932,16 @@ class LegalAIApp(ctk.CTk):
         self._research_result_box.configure(state="disabled")
 
         state_str  = self._state_var.get()
-        domain     = self._research_domain_var.get()
         mode       = self._research_mode_var.get()
         export_fmt = self._research_export_var.get()
 
         threading.Thread(
             target=self._research_thread,
-            args=(query, state_str, domain, mode, export_fmt),
+            args=(query, state_str, mode, export_fmt),
             daemon=True,
         ).start()
 
-    def _research_thread(self, query, state_str, domain, mode, export_fmt):
+    def _research_thread(self, query, state_str, mode, export_fmt):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -968,14 +956,10 @@ class LegalAIApp(ctk.CTk):
                     state_enum = USState(state_str.upper())
                 except ValueError:
                     state_enum = USState.FEDERAL
-                try:
-                    domain_enum = LegalDomain(domain.lower())
-                except ValueError:
-                    domain_enum = LegalDomain.CONTRACT
                 return await system.research(
                     query=query,
                     state=state_enum,
-                    domain=domain_enum,
+                    domain=LegalDomain.CONTRACT,  # unused by the pipeline
                     mode=mode,
                 )
 
@@ -986,7 +970,7 @@ class LegalAIApp(ctk.CTk):
 
             if export_fmt != "none":
                 try:
-                    _export_research(result, query, state_str, domain, mode, export_fmt)
+                    _export_research(result, query, state_str, "general", mode, export_fmt)
                 except Exception as exc:
                     response += f"\n\n[Export warning: {exc}]"
 
