@@ -1,0 +1,58 @@
+# ── Secrets & credentials ────────────────────────────────────────────
+.env
+
+# ── Case-specific / sensitive files at project root ──────────────────
+Petition-info.txt
+1000000584.png
+1000000585.png
+psychological-state-analysis.pdf
+
+# ── Case-specific runner scripts (contain personal case details) ──────
+_run_petition.py
+_run_committal.py
+_run_protective_order.py
+_fix_committal_docs.py
+
+# ── Generated output (may contain PII / privileged legal docs) ───────
+output/
+
+# ── Actual case files / evidence uploaded by user ────────────────────
+cases/
+workingdir/
+
+# ── Python cache ──────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual environments ──────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Build / distribution ──────────────────────────────────────────────
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ── IDE / editor ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+desktop.ini
+Thumbs.db
+
+# ── Claude Code session data ──────────────────────────────────────────
+.claude/
+
+# ── OS artifacts ──────────────────────────────────────────────────────
+.DS_Store
+ehthumbs.db

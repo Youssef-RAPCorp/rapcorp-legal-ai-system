@@ -1,0 +1,46 @@
+{
+  "state": "FL",
+  "state_name": "Florida",
+  "statute_db_path": "data/statutes/fl/",
+  "case_law_db_path": "data/case_law/fl/",
+  "regulations_db_path": "data/regulations/fl/",
+  "statute_citation_format": "Fla. Stat. § {section}",
+  "case_citation_format": "{case_name}, {volume} So.{series} {page} (Fla. {court} {year})",
+  "court_hierarchy": [
+    "Supreme Court of Florida",
+    "Florida District Courts of Appeal",
+    "Florida Circuit Courts",
+    "Florida County Courts"
+  ],
+  "statute_of_limitations": {
+    "contract_written": 5,
+    "contract_oral": 4,
+    "personal_injury": 4,
+    "property_damage": 4,
+    "fraud": 4,
+    "malpractice_legal": 2,
+    "malpractice_medical": 2,
+    "wrongful_death": 2,
+    "defamation": 2,
+    "product_liability": 4,
+    "breach_of_warranty": 4
+  },
+  "special_rules": {
+    "anti_slapp": true,
+    "no_fault_auto": true,
+    "homestead_protection": true,
+    "comparative_negligence": true,
+    "damage_caps_non_economic": null,
+    "damage_caps_punitive": null,
+    "pure_comparative_fault": true,
+    "stand_your_ground": true
+  },
+  "qdrant_collection": "florida_law",
+  "is_active": true,
+  "_metadata": {
+    "created": "2025-02-04T00:00:00Z",
+    "template": "common_law",
+    "version": "1.0",
+    "notes": "Florida has a 4-year personal injury SOL, longer than most states"
+  }
+}

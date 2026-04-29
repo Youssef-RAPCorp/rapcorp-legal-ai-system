@@ -1,0 +1,40 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# RAPCorp LEGAL AI SYSTEM - DEPENDENCIES
+# Renaissance of American Physics and Astronomy (RAPCorp)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── CORE: Google Gemini API ───
+# Models: gemini-flash-lite-latest, gemini-flash-latest, gemini-pro-latest
+google-generativeai>=0.8.3
+
+# ─── VECTOR DATABASE ───
+qdrant-client>=1.9.0
+
+# ─── EMBEDDINGS (Local, FREE) ───
+sentence-transformers>=2.2.0
+
+# ─── ASYNC & CONCURRENCY ───
+asyncio-throttle>=1.0.0
+aiohttp>=3.9.0
+aiofiles>=23.0.0
+
+# ─── DATA PROCESSING ───
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+
+# ─── UTILITIES ───
+httpx>=0.27.0
+tenacity>=8.2.0
+rich>=13.0.0
+
+# ─── OPTIONAL: Document Processing ───
+pypdf>=3.0.0
+python-docx>=1.1.0
+
+# ─── GUI ───
+customtkinter>=5.2.2
+
+# ─── DEVELOPMENT ───
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+black>=24.0.0
