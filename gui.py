@@ -147,9 +147,15 @@ class LegalAIApp(ctk.CTk):
         self._build_main_area()
 
     def _build_sidebar(self):
-        sb = ctk.CTkFrame(self, width=300, corner_radius=0)
+        # Outer frame holds the fixed width; inner scrollable frame holds all widgets
+        sb_outer = ctk.CTkFrame(self, width=300, corner_radius=0)
+        sb_outer.grid(row=0, column=0, sticky="nsew")
+        sb_outer.grid_propagate(False)
+        sb_outer.grid_columnconfigure(0, weight=1)
+        sb_outer.grid_rowconfigure(0, weight=1)
+
+        sb = ctk.CTkScrollableFrame(sb_outer, fg_color="transparent", corner_radius=0)
         sb.grid(row=0, column=0, sticky="nsew")
-        sb.grid_propagate(False)
         sb.grid_columnconfigure(0, weight=1)
 
         row = 0
