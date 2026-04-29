@@ -94,6 +94,32 @@ class _LogRedirect:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class LegalAIApp(ctk.CTk):
+
+    _PRESET_INSTRUCTIONS: dict[str, str] = {
+        "Remove psychosis/schizophrenia diagnostic claims": (
+            "Remove all definitive statements about whether the Respondent does or does not "
+            "have psychosis or schizophrenia. The most recent medical evaluation is ambiguous "
+            "on this point. Specifically, rewrite any sentence claiming 'not schizophrenia', "
+            "'no psychosis was present', 'denied any psychosis or delusions', or any equivalent "
+            "negative diagnostic assertion — replace them by focusing solely on what the evaluation "
+            "positively found: the specific diagnosis code and condition name given, and the "
+            "provider's assessment of current functioning. Do not claim the Respondent has or "
+            "does not have psychosis or schizophrenia. Preserve all other content exactly."
+        ),
+        "Restore Nebraska statute citations": (
+            "Ensure the document cites the following Nebraska statutes by their full section numbers "
+            "in the appropriate legal argument sections. If any are already present, leave them "
+            "unchanged. Only insert missing citations in a legally correct location:\n"
+            "- Neb. Rev. Stat. § 30-4201 et seq. (protected person standard, Uniform Guardianship Act)\n"
+            "- Neb. Rev. Stat. § 30-2630 (conservatorship: clear and convincing evidence that the "
+            "person cannot manage their property and affairs effectively)\n"
+            "- Neb. Rev. Stat. § 30-2620 (guardianship: clear and convincing evidence that the person "
+            "lacks sufficient understanding or capacity to make or communicate responsible decisions)\n"
+            "- In re Guardianship & Conservatorship of Larson, 270 Neb. 837 (2006) (burden of proof)\n"
+            "Preserve all other content exactly."
+        ),
+    }
+
     def __init__(self):
         super().__init__()
         self.title("RAPCorp Legal AI System")
@@ -375,6 +401,50 @@ class LegalAIApp(ctk.CTk):
                        command=lambda: self._apply_ai_fix("all"),
                        height=34, fg_color="gray30",
                        hover_color="gray20").pack(side="left", padx=(8, 0))
+
+        # Divider
+        ctk.CTkFrame(tab, height=1, fg_color="gray25").grid(
+            row=r, column=0, padx=12, pady=(10, 8), sticky="ew"); r += 1
+
+        # ── Preset Legal Updates ───────────────────────────────────────────
+        ctk.CTkLabel(tab, text="Preset Legal Updates",
+                     font=ctk.CTkFont(size=13, weight="bold"), anchor="w").grid(
+            row=r, column=0, padx=14, pady=(0, 2), sticky="ew"); r += 1
+
+        ctk.CTkLabel(
+            tab,
+            text="Apply a pre-defined legal update to all generated documents with one click.",
+            text_color="gray55", anchor="w", wraplength=700, justify="left",
+            font=ctk.CTkFont(size=11),
+        ).grid(row=r, column=0, padx=14, sticky="ew"); r += 1
+
+        preset_row = ctk.CTkFrame(tab, fg_color="transparent")
+        preset_row.grid(row=r, column=0, padx=12, pady=(8, 4), sticky="ew"); r += 1
+        preset_row.grid_columnconfigure(0, weight=1)
+
+        self._preset_var = ctk.StringVar(value=list(self._PRESET_INSTRUCTIONS.keys())[0])
+        ctk.CTkOptionMenu(
+            preset_row, variable=self._preset_var,
+            values=list(self._PRESET_INSTRUCTIONS.keys()),
+            dynamic_resizing=False,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+
+        ctk.CTkButton(
+            preset_row, text="Apply to All Docs", width=130,
+            command=self._apply_preset,
+        ).grid(row=0, column=1)
+
+        ctk.CTkLabel(
+            tab,
+            text="Additional notes (optional) — appended to the preset instruction above:",
+            text_color="gray55", anchor="w",
+            font=ctk.CTkFont(size=11),
+        ).grid(row=r, column=0, padx=14, pady=(6, 2), sticky="ew"); r += 1
+
+        self._preset_notes_box = ctk.CTkTextbox(tab, height=64,
+                                                 font=ctk.CTkFont(size=11), wrap="word")
+        self._preset_notes_box.grid(row=r, column=0, padx=12, pady=(0, 14),
+                                     sticky="ew"); r += 1
 
     # ─── File upload helpers ──────────────────────────────────────────────
 
@@ -765,6 +835,46 @@ class LegalAIApp(ctk.CTk):
         finally:
             loop.close()
             self.after(0, self._ai_fix_done)
+
+    # ─── Preset legal updates ─────────────────────────────────────────────
+
+    def _apply_preset(self):
+        preset_name = self._preset_var.get()
+        base_instruction = self._PRESET_INSTRUCTIONS.get(preset_name, "")
+        if not base_instruction:
+            messagebox.showwarning("Unknown preset", f"No instruction found for: {preset_name}")
+            return
+
+        extra_notes = self._preset_notes_box.get("0.0", "end").strip()
+        instruction = base_instruction
+        if extra_notes:
+            instruction += f"\n\nADDITIONAL INSTRUCTIONS FROM USER:\n{extra_notes}"
+
+        if self._system is None:
+            messagebox.showwarning("No run yet", "Run the analysis first.")
+            return
+
+        targets = [
+            d.get("docx_path", d.get("file_path", ""))
+            for d in self._editable_docs
+            if d.get("doc_type") not in ("checklist",)
+        ]
+        targets = [t for t in targets if t]
+
+        if not targets:
+            messagebox.showwarning("No targets", "No documents to apply preset to. Run the analysis first.")
+            return
+
+        self._run_btn.configure(state="disabled")
+        self._progress_bar.start()
+        self._tabs.set("Progress")
+        self._log(f"\n  Applying preset '{preset_name}' to {len(targets)} document(s)…")
+
+        threading.Thread(
+            target=self._ai_fix_thread,
+            args=(self._system.config, targets, instruction),
+            daemon=True,
+        ).start()
 
     def _ai_fix_done(self):
         self._run_btn.configure(state="normal")

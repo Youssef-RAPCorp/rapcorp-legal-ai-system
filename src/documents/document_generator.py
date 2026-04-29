@@ -249,6 +249,9 @@ Return JSON in this exact format:
             "priority": 1
         }}
     ],
+    "key_statutes": [
+        "Full citation for each statute that applies, e.g. 'Neb. Rev. Stat. § 30-4201 et seq. — protected person standard (Uniform Guardianship Act)'. Include specific section numbers — never generic references."
+    ],
     "special_notes": ["Any important procedural notes for filing in {state.value}"]
 }}
 
@@ -309,6 +312,12 @@ Order documents by priority (1 = must file first)."""
                 strength_block += "\nOPPOSING PARTY ADMISSIONS (use these prominently, not in footnotes):\n"
                 strength_block += "\n".join(f"  • {a}" for a in admissions)
 
+        key_statutes = plan.get("key_statutes", [])
+        statutes_block = ""
+        if key_statutes:
+            statutes_block = "\n\nKEY STATUTES TO CITE (always include these with their full section numbers in the Legal Claims section — never replace with a generic reference to 'state law'):\n"
+            statutes_block += "\n".join(f"  - {s}" for s in key_statutes)
+
         prompt = f"""Draft a formal {plan['petition_type']} to be filed in the
 {plan['court_name']} in {state.value}.
 
@@ -320,7 +329,7 @@ PETITIONER CLARIFICATIONS:
 
 EVIDENCE SUMMARY:
 {self._evidence_summary_for_prompt(analysis)}
-{self._chain_block_for_prompt(analysis)}{case_law_block}{strength_block}
+{self._chain_block_for_prompt(analysis)}{case_law_block}{strength_block}{statutes_block}
 
 DRAFTING INSTRUCTIONS:
 - Use the standard format for a {state.value} court petition
@@ -335,7 +344,8 @@ DRAFTING INSTRUCTIONS:
 - Reference exhibits as Exhibit A, B, C etc. for each piece of evidence
 - Be precise, factual, and professional — no hyperbole
 - Leave blanks like [DATE] or [CASE NUMBER] where information is unknown
-- Include the statutory basis for each claim
+- Cite every statute from the KEY STATUTES list above by its exact section number
+  in the body of the legal claims — do not substitute generic references to "state law"
 - Cite relevant case law from the list above where it strengthens each claim
 - Plain text only — NO markdown, NO asterisks for bold, NO pound signs for headings,
   NO hyphens as bullet markers. Use Roman numerals (I., II.) or letters (A., B.)
@@ -499,6 +509,12 @@ _______________________________
             f"{case_law_context[:2000]}"
         ) if case_law_context else ""
 
+        key_statutes = plan.get("key_statutes", [])
+        statutes_block = ""
+        if key_statutes:
+            statutes_block = "\n\nKEY STATUTES (cite these by full section number in the ORDER items where applicable):\n"
+            statutes_block += "\n".join(f"  - {s}" for s in key_statutes)
+
         prompt = f"""Draft a PROPOSED ORDER for the petitioner/respondent to FILE WITH THE COURT
 in the matter of {plan['petition_type']} in {plan['court_name']}, {state.value}.
 
@@ -508,7 +524,7 @@ to the court asking the judge to sign it. It states what RELIEF the party is
 requesting. It is NOT a decision — the judge has not ruled yet.
 
 CASE SITUATION:
-{situation}{case_law_block}
+{situation}{case_law_block}{statutes_block}
 
 REQUIRED FORMAT — follow this structure exactly:
 
