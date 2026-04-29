@@ -284,6 +284,7 @@ class LegalAIApp(ctk.CTk):
         self._build_tab_progress()
         self._build_tab_documents()
         self._build_tab_edit()
+        self._build_tab_research()
 
         # ── Progress bar (shown during runs) ─────────────────────────────
         self._progress_bar = ctk.CTkProgressBar(main, mode="indeterminate", height=6)
@@ -451,6 +452,89 @@ class LegalAIApp(ctk.CTk):
                                                  font=ctk.CTkFont(size=11), wrap="word")
         self._preset_notes_box.grid(row=r, column=0, padx=12, pady=(0, 14),
                                      sticky="ew"); r += 1
+
+    # ── Tab: Research ─────────────────────────────────────────────────────
+
+    def _build_tab_research(self):
+        tab = self._tabs.add("Research")
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(5, weight=1)
+
+        r = 0
+
+        # ── Query ─────────────────────────────────────────────────────
+        ctk.CTkLabel(tab, text="Research Question",
+                     font=ctk.CTkFont(size=13, weight="bold"), anchor="w").grid(
+            row=r, column=0, padx=14, pady=(12, 2), sticky="ew"); r += 1
+
+        self._research_query_box = ctk.CTkTextbox(
+            tab, height=88, font=ctk.CTkFont(size=12), wrap="word")
+        self._research_query_box.grid(
+            row=r, column=0, padx=12, pady=(0, 8), sticky="ew"); r += 1
+
+        # ── Options row ───────────────────────────────────────────────
+        opts = ctk.CTkFrame(tab, fg_color="transparent")
+        opts.grid(row=r, column=0, padx=12, pady=(0, 6), sticky="ew"); r += 1
+        opts.grid_columnconfigure((0, 1, 2), weight=1)
+
+        ctk.CTkLabel(opts, text="Domain:", anchor="w",
+                     font=ctk.CTkFont(size=11)).grid(
+            row=0, column=0, sticky="w")
+        _DOMAINS = ["contract", "tort", "criminal", "family", "employment",
+                    "real_estate", "ip", "corporate", "bankruptcy", "tax",
+                    "civil_rights", "constitutional"]
+        self._research_domain_var = ctk.StringVar(value="civil_rights")
+        ctk.CTkOptionMenu(opts, variable=self._research_domain_var,
+                          values=_DOMAINS, dynamic_resizing=False).grid(
+            row=1, column=0, padx=(0, 8), sticky="ew")
+
+        ctk.CTkLabel(opts, text="Mode:", anchor="w",
+                     font=ctk.CTkFont(size=11)).grid(
+            row=0, column=1, sticky="w")
+        self._research_mode_var = ctk.StringVar(value="standard")
+        ctk.CTkOptionMenu(opts, variable=self._research_mode_var,
+                          values=["quick", "standard", "comprehensive"],
+                          dynamic_resizing=False).grid(
+            row=1, column=1, padx=(0, 8), sticky="ew")
+
+        ctk.CTkLabel(opts, text="Export:", anchor="w",
+                     font=ctk.CTkFont(size=11)).grid(
+            row=0, column=2, sticky="w")
+        self._research_export_var = ctk.StringVar(value="html")
+        ctk.CTkOptionMenu(opts, variable=self._research_export_var,
+                          values=["html", "md", "json", "all", "none"],
+                          dynamic_resizing=False).grid(
+            row=1, column=2, padx=(0, 0), sticky="ew")
+
+        # ── Run button ────────────────────────────────────────────────
+        self._research_btn = ctk.CTkButton(
+            tab, text="Run Research",
+            command=self._run_research,
+            height=40, font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#1a5fa8", hover_color="#103d6e",
+        )
+        self._research_btn.grid(
+            row=r, column=0, padx=12, pady=(4, 2), sticky="ew"); r += 1
+
+        # ── Status ────────────────────────────────────────────────────
+        self._research_status = ctk.CTkLabel(
+            tab, text="Jurisdiction is taken from the sidebar selector.",
+            text_color="gray55", anchor="w", font=ctk.CTkFont(size=11))
+        self._research_status.grid(
+            row=r, column=0, padx=16, pady=(2, 4), sticky="ew"); r += 1
+
+        # ── Results ───────────────────────────────────────────────────
+        ctk.CTkLabel(tab, text="Results",
+                     font=ctk.CTkFont(size=12, weight="bold"), anchor="w").grid(
+            row=r, column=0, padx=14, pady=(2, 2), sticky="ew"); r += 1
+
+        tab.grid_rowconfigure(r, weight=1)
+        self._research_result_box = ctk.CTkTextbox(
+            tab, state="disabled",
+            font=ctk.CTkFont(family="Georgia", size=12), wrap="word",
+        )
+        self._research_result_box.grid(
+            row=r, column=0, padx=12, pady=(0, 12), sticky="nsew")
 
     # ─── File upload helpers ──────────────────────────────────────────────
 
@@ -841,6 +925,92 @@ class LegalAIApp(ctk.CTk):
         finally:
             loop.close()
             self.after(0, self._ai_fix_done)
+
+    # ─── Research tab logic ───────────────────────────────────────────────
+
+    def _run_research(self):
+        query = self._research_query_box.get("0.0", "end").strip()
+        if not query:
+            messagebox.showwarning("No query", "Enter a research question first.")
+            return
+
+        self._research_btn.configure(state="disabled", text="Searching…")
+        self._research_status.configure(
+            text="Running research — this may take 15–60 seconds…",
+            text_color="gray55")
+        self._research_result_box.configure(state="normal")
+        self._research_result_box.delete("0.0", "end")
+        self._research_result_box.configure(state="disabled")
+
+        state_str  = self._state_var.get()
+        domain     = self._research_domain_var.get()
+        mode       = self._research_mode_var.get()
+        export_fmt = self._research_export_var.get()
+
+        threading.Thread(
+            target=self._research_thread,
+            args=(query, state_str, domain, mode, export_fmt),
+            daemon=True,
+        ).start()
+
+    def _research_thread(self, query, state_str, domain, mode, export_fmt):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            from configs.config import USState, LegalDomain
+            from src.legal_ai_system import create_legal_ai_system
+            from main import _export_research
+
+            async def _run():
+                system = await create_legal_ai_system()
+                self._system = self._system or system
+                try:
+                    state_enum = USState(state_str.upper())
+                except ValueError:
+                    state_enum = USState.FEDERAL
+                try:
+                    domain_enum = LegalDomain(domain.lower())
+                except ValueError:
+                    domain_enum = LegalDomain.CONTRACT
+                return await system.research(
+                    query=query,
+                    state=state_enum,
+                    domain=domain_enum,
+                    mode=mode,
+                )
+
+            result = loop.run_until_complete(_run())
+            response = result.get("response", "")
+            duration = result.get("duration_seconds", 0)
+            cost     = result.get("total_cost", 0)
+
+            if export_fmt != "none":
+                try:
+                    _export_research(result, query, state_str, domain, mode, export_fmt)
+                except Exception as exc:
+                    response += f"\n\n[Export warning: {exc}]"
+
+            self.after(0, lambda: self._research_done(response, duration, cost))
+        except Exception as exc:
+            err = f"{exc}\n{traceback.format_exc()}"
+            self.after(0, lambda: self._research_error(err))
+        finally:
+            loop.close()
+
+    def _research_done(self, response: str, duration: float, cost: float):
+        self._research_btn.configure(state="normal", text="Run Research")
+        self._research_status.configure(
+            text=f"Done — {duration:.1f}s | Est. cost ${cost:.6f}",
+            text_color="gray55")
+        self._research_result_box.configure(state="normal")
+        self._research_result_box.delete("0.0", "end")
+        self._research_result_box.insert("0.0", response)
+        self._research_result_box.configure(state="disabled")
+
+    def _research_error(self, error_msg: str):
+        self._research_btn.configure(state="normal", text="Run Research")
+        self._research_status.configure(
+            text=f"Error: {error_msg[:140]}", text_color="#e05050")
 
     # ─── Preset legal updates ─────────────────────────────────────────────
 
