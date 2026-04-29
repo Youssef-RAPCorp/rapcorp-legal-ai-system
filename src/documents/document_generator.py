@@ -195,21 +195,44 @@ class DocumentGenerator:
         analysis: EvidenceAnalysisResult,
         clarifications: Dict[str, str],
         state: USState,
+        doc_mode: str = "petition",
     ) -> Dict[str, Any]:
         """
         Ask Gemini to determine the petition type and what documents are
-        required for that state.
+        required for that state.  doc_mode is either "petition" (new action)
+        or "reply" (responding to an existing proceeding).
         """
         clarification_block = (
             "\n".join(f"Q: {q}\nA: {a}" for q, a in clarifications.items())
             if clarifications else "None provided."
         )
 
+        if doc_mode == "reply":
+            mode_instruction = """DOCUMENT MODE: REPLY / RESPONSE TO EXISTING PROCEEDINGS
+You are planning RESPONSE documents for an existing case — NOT initiating a new lawsuit.
+Do NOT plan a new Petition or Complaint as the primary document.
+Instead, choose the appropriate response/reply documents from this list:
+  - "objection"            — Objection to Petition or Motion
+  - "motion_to_terminate"  — Motion to Terminate / Dismiss / Vacate
+  - "proposed_order"       — Proposed Order requesting specific relief
+  - "reply_brief"          — Reply Brief / Supplemental Pleading / Memorandum
+  - "response"             — Response or Answer to a Petition or Motion
+  - "affidavit"            — Supporting Affidavit of Facts
+  - "exhibit_index"        — Exhibit Index
+  - "certificate_of_service" — Certificate of Service
+  - "cover_sheet"          — Filing Cover Sheet
+Plan only the documents that are genuinely required for this response.
+Use "petition_type" to name the response action (e.g. "Objection and Motion to Terminate Guardianship")."""
+            doc_type_hint = "objection|motion_to_terminate|proposed_order|reply_brief|response|affidavit|exhibit_index|certificate_of_service|cover_sheet"
+        else:
+            mode_instruction = """DOCUMENT MODE: NEW PETITION / LEGAL ACTION
+You are planning the complete filing package to initiate a new legal action."""
+            doc_type_hint = "petition|affidavit|exhibit_index|certificate_of_service|cover_sheet|proposed_order|summons|other"
+
         prompt = f"""You are a legal document specialist. Based on the case situation and
-evidence analysis below, determine:
-1. The specific type of petition / legal action being filed
-2. The court it should be filed in (in {state.value})
-3. The exact list of documents required to file that petition in {state.value}
+evidence analysis below, plan the required court documents.
+
+{mode_instruction}
 
 CASE SITUATION:
 {situation}
@@ -225,22 +248,22 @@ KEY FINDINGS:
 
 Before planning documents, identify:
 - Any admissions by the opposing party (e.g. a motion they filed that concedes a key point)
-- Any court findings or orders that already favour the petitioner
+- Any court findings or orders that already favour the filer
 - The single strongest argument that should LEAD every document
 
 These must be prominently featured — not buried in footnotes.
 
 Return JSON in this exact format:
 {{
-    "petition_type": "Exact name of the petition/action",
+    "petition_type": "Exact name of the action or response being filed",
     "court_name": "Full name of the court to file in",
     "court_address": "Court address if known, else null",
     "filing_fee_estimate": "Estimated filing fee range or 'Unknown'",
-    "strongest_argument": "One sentence: the single most powerful argument available, e.g. an admission by the opposing party",
+    "strongest_argument": "One sentence: the single most powerful argument available",
     "opposing_admissions": ["Any statement, motion, or filing by the opposing party that concedes or undermines their own position"],
     "documents": [
         {{
-            "doc_type": "petition|affidavit|exhibit_index|certificate_of_service|cover_sheet|proposed_order|summons|other",
+            "doc_type": "{doc_type_hint}",
             "title": "Full title of the document",
             "description": "What this document does and why it is required — include how it uses the strongest argument",
             "requires_signature": true,
@@ -250,7 +273,7 @@ Return JSON in this exact format:
         }}
     ],
     "key_statutes": [
-        "Full citation for each statute that applies, e.g. 'Neb. Rev. Stat. § 30-4201 et seq. — protected person standard (Uniform Guardianship Act)'. Include specific section numbers — never generic references."
+        "Full citation for each statute that applies. Include specific section numbers — never generic references."
     ],
     "special_notes": ["Any important procedural notes for filing in {state.value}"]
 }}
@@ -555,6 +578,69 @@ Write the complete proposed order now:"""
 
         return await self._generate_text(prompt, max_tokens=2048)
 
+    async def _gen_reply_document(
+        self, doc_info: Dict, situation: str, analysis: EvidenceAnalysisResult,
+        clarifications: Dict[str, str], plan: Dict, state: USState,
+        case_law_context: str = "",
+    ) -> str:
+        clarification_block = (
+            "\n".join(f"Q: {q}\nA: {a}" for q, a in clarifications.items())
+            if clarifications else "None."
+        )
+        case_law_block = (
+            f"\n\nRELEVANT CASE LAW (cite where applicable):\n{case_law_context[:3000]}"
+        ) if case_law_context else ""
+
+        key_statutes = plan.get("key_statutes", [])
+        statutes_block = ""
+        if key_statutes:
+            statutes_block = "\n\nKEY STATUTES TO CITE (with full section numbers):\n"
+            statutes_block += "\n".join(f"  - {s}" for s in key_statutes)
+
+        strongest = plan.get("strongest_argument", "")
+        admissions = plan.get("opposing_admissions", [])
+        strength_block = ""
+        if strongest or admissions:
+            strength_block = "\n\nSTRONGEST ARGUMENT — LEAD WITH THIS:\n"
+            if strongest:
+                strength_block += f"{strongest}\n"
+            if admissions:
+                strength_block += "\nOPPOSING PARTY ADMISSIONS (cite prominently):\n"
+                strength_block += "\n".join(f"  • {a}" for a in admissions)
+
+        prompt = f"""You are a senior litigation attorney drafting a reply/response document
+for pro se filing in the {plan['court_name']}, {state.value}.
+
+DOCUMENT TO DRAFT: {doc_info['title']}
+PURPOSE: {doc_info.get('description', doc_info['title'])}
+ACTION: {plan['petition_type']}
+
+CASE SITUATION:
+{situation}
+
+CLARIFICATIONS:
+{clarification_block}
+
+EVIDENCE SUMMARY:
+{self._evidence_summary_for_prompt(analysis)}
+{self._chain_block_for_prompt(analysis)}{case_law_block}{statutes_block}{strength_block}
+
+DRAFTING INSTRUCTIONS:
+- Written in the voice of the RESPONDING PARTY (not initiating a new lawsuit)
+- Include: case caption, introduction referencing the document being responded to,
+  numbered argument sections, prayer for relief, signature block
+- LEAD with the strongest argument and any admissions by the opposing party
+- Cite every applicable statute by its full section number
+- Reference exhibits by letter (Exhibit A, B, C…)
+- Number every paragraph
+- Plain text only — NO markdown, NO asterisks, NO pound signs for headings.
+  Use Roman numerals (I., II.) or letters (A., B.) for sections.
+- Leave [BRACKETS] for unknown information (dates, case numbers, etc.)
+
+Write the complete document now:"""
+
+        return await self._generate_text(prompt, max_tokens=16384)
+
     def _gen_cover_sheet(self, plan: Dict, situation: str, state: USState) -> str:
         return f"""CIVIL CASE COVER SHEET — {state.value}
 {plan['court_name'].upper()}
@@ -683,6 +769,7 @@ Signature: _______________________________ Date: _______________
         state: USState,
         output_dir: Optional[str] = None,
         case_law_context: str = "",
+        doc_mode: str = "petition",
     ) -> List[GeneratedDocument]:
         """
         Generate the complete package of documents needed to file the petition.
@@ -702,7 +789,7 @@ Signature: _______________________________ Date: _______________
 
         # Determine what documents are needed
         print("    Planning required documents...")
-        plan = await self._plan_documents(situation, analysis, clarifications, state)
+        plan = await self._plan_documents(situation, analysis, clarifications, state, doc_mode)
         print(f"    Petition type: {plan['petition_type']}")
         print(f"    Court: {plan['court_name']}")
         print(f"    Documents to generate: {len(plan['documents'])}")
@@ -715,7 +802,10 @@ Signature: _______________________________ Date: _______________
         evidence_summary = self._evidence_summary_for_prompt(analysis)
 
         # Documents that are AI-generated and benefit from iterative review
-        _AI_REVIEWED_TYPES = {"petition", "affidavit", "proposed_order"}
+        _AI_REVIEWED_TYPES = {
+            "petition", "affidavit", "proposed_order",
+            "objection", "motion_to_terminate", "reply_brief", "response", "motion",
+        }
 
         for doc_info in sorted(plan["documents"], key=lambda d: d.get("priority", 99)):
             doc_type = doc_info["doc_type"]
@@ -737,17 +827,11 @@ Signature: _______________________________ Date: _______________
                 content = await self._gen_proposed_order(doc_info, situation, plan, state, case_law_context)
             elif doc_type == "cover_sheet":
                 content = self._gen_cover_sheet(plan, situation, state)
+            elif doc_type in ("objection", "motion_to_terminate", "reply_brief",
+                              "response", "motion", "supplemental_pleading", "notice"):
+                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context)
             else:
-                # Generic — let Gemini draft it
-                prompt = f"""Draft a {title} for a {plan['petition_type']} to be filed
-in {plan['court_name']}, {state.value}.
-
-Case situation: {situation[:500]}
-
-Document purpose: {doc_info.get('description', title)}
-
-Write the complete document:"""
-                content = await self._generate_text(prompt, max_tokens=4096)
+                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context)
 
             if content:
                 # Iterative review for AI-generated substantive documents

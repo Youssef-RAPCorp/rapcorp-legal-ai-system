@@ -248,6 +248,21 @@ class LegalAIApp(ctk.CTk):
                        height=30, fg_color="gray25", hover_color="gray18").pack(
             side="left", padx=(5, 0))
 
+        # ── Document mode ─────────────────────────────────────────────────
+        ctk.CTkFrame(sb, height=1, fg_color="gray25").grid(
+            row=row, column=0, padx=16, sticky="ew"); row += 1
+
+        ctk.CTkLabel(sb, text="Document Mode", anchor="w",
+                     font=ctk.CTkFont(size=12, weight="bold")).grid(
+            row=row, column=0, padx=20, pady=(10, 4), sticky="ew"); row += 1
+
+        self._doc_mode_var = ctk.StringVar(value="New Petition")
+        ctk.CTkSegmentedButton(
+            sb,
+            values=["New Petition", "Reply / Response"],
+            variable=self._doc_mode_var,
+        ).grid(row=row, column=0, padx=20, pady=(0, 10), sticky="ew"); row += 1
+
         # ── Situation text ────────────────────────────────────────────────
         ctk.CTkFrame(sb, height=1, fg_color="gray25").grid(
             row=row, column=0, padx=16, sticky="ew"); row += 1
@@ -613,13 +628,14 @@ class LegalAIApp(ctk.CTk):
             return
 
         state_str = self._state_var.get()
+        doc_mode  = "reply" if self._doc_mode_var.get() == "Reply / Response" else "petition"
 
         self._running = True
         self._run_btn.configure(state="disabled", text="Running…")
         self._progress_bar.start()
         self._tabs.set("Progress")
         self._log("━" * 64)
-        self._log(f"  RAPCorp Legal AI  —  {state_str}")
+        self._log(f"  RAPCorp Legal AI  —  {state_str}  [{self._doc_mode_var.get()}]")
         self._log(f"  Case docs  : {len(self._case_files)}")
         self._log(f"  Evidence   : {len(self._evidence_files)}")
         self._log("━" * 64)
@@ -629,17 +645,17 @@ class LegalAIApp(ctk.CTk):
 
         threading.Thread(
             target=self._pipeline_thread,
-            args=(situation, state_str,
+            args=(situation, state_str, doc_mode,
                   list(self._case_files), list(self._evidence_files)),
             daemon=True,
         ).start()
 
-    def _pipeline_thread(self, situation, state_str, case_files, evidence_files):
+    def _pipeline_thread(self, situation, state_str, doc_mode, case_files, evidence_files):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             result = loop.run_until_complete(
-                self._pipeline(situation, state_str, case_files, evidence_files)
+                self._pipeline(situation, state_str, doc_mode, case_files, evidence_files)
             )
             self._log_q.put(("done", result))
         except Exception as exc:
@@ -647,7 +663,7 @@ class LegalAIApp(ctk.CTk):
         finally:
             loop.close()
 
-    async def _pipeline(self, situation, state_str, case_files, evidence_files):
+    async def _pipeline(self, situation, state_str, doc_mode, case_files, evidence_files):
         from src.legal_ai_system import create_legal_ai_system
         from src.documents.docx_writer import txt_to_docx
 
@@ -675,6 +691,7 @@ class LegalAIApp(ctk.CTk):
             analysis=analysis,
             clarifications={},
             state=state_enum,
+            doc_mode=doc_mode,
         )
 
         # Phase 3 — Convert every .txt output to .docx

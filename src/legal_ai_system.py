@@ -826,6 +826,7 @@ Return ONLY valid JSON:
         clarifications: Dict[str, str],
         state: USState = USState.FEDERAL,
         output_dir: Optional[str] = None,
+        doc_mode: str = "petition",
     ) -> List[Dict[str, Any]]:
         """
         Generate all documents required to file the petition.
@@ -885,6 +886,7 @@ Return ONLY valid JSON:
             state=state,
             output_dir=output_dir,
             case_law_context=case_law_context,
+            doc_mode=doc_mode,
         )
 
         return [

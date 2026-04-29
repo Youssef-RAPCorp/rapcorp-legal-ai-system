@@ -849,13 +849,16 @@ async def run_evidence_analysis(
         print("\n  Skipping document generation. Analysis saved above.")
         return
 
-    print("\n  Generating petition package for " + state_enum.value + "...")
+    doc_mode = getattr(args, "doc_mode", "petition")
+    mode_label = "reply/response package" if doc_mode == "reply" else "petition package"
+    print(f"\n  Generating {mode_label} for {state_enum.value}...")
     merged_clarifications = {**preflight_clarifications, **all_clarifications}
     docs = await system.generate_petition_documents(
         situation=situation,
         analysis=analysis,
         clarifications=merged_clarifications,
         state=state_enum,
+        doc_mode=doc_mode,
     )
 
     _print_separator("GENERATED FILES")
@@ -1020,6 +1023,9 @@ Examples:
     # Evidence analysis
     parser.add_argument("--evidence", "-e", action="store_true",
                         help="Analyze files for legally relevant evidence")
+    parser.add_argument("--doc-mode", default="petition",
+                        choices=["petition", "reply"],
+                        help="petition = new lawsuit (default); reply = objection/proposed order/response to existing proceedings")
     parser.add_argument("--situation",
                         help="Case situation description as inline text")
     parser.add_argument("--situation-file", metavar="PATH",
