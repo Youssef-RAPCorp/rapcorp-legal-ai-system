@@ -475,16 +475,26 @@ class LegalAIApp(ctk.CTk):
         # ── Options row ───────────────────────────────────────────────
         opts = ctk.CTkFrame(tab, fg_color="transparent")
         opts.grid(row=r, column=0, padx=12, pady=(0, 6), sticky="ew"); r += 1
-        opts.grid_columnconfigure(0, weight=1)
+        opts.grid_columnconfigure((0, 1), weight=1)
+
+        ctk.CTkLabel(opts, text="Jurisdiction:", anchor="w",
+                     font=ctk.CTkFont(size=11)).grid(
+            row=0, column=0, sticky="w")
+        _research_state_values = ["FEDERAL"] + _STATES
+        self._research_state_var = ctk.StringVar(value="FEDERAL")
+        ctk.CTkComboBox(
+            opts, variable=self._research_state_var,
+            values=_research_state_values,
+        ).grid(row=1, column=0, padx=(0, 8), sticky="ew")
 
         ctk.CTkLabel(opts, text="Export:", anchor="w",
                      font=ctk.CTkFont(size=11)).grid(
-            row=0, column=0, sticky="w")
+            row=0, column=1, sticky="w")
         self._research_export_var = ctk.StringVar(value="html")
         ctk.CTkOptionMenu(opts, variable=self._research_export_var,
                           values=["html", "md", "json", "all", "none"],
                           dynamic_resizing=False).grid(
-            row=1, column=0, sticky="ew")
+            row=1, column=1, sticky="ew")
 
         # ── Run button ────────────────────────────────────────────────
         self._research_btn = ctk.CTkButton(
@@ -498,7 +508,7 @@ class LegalAIApp(ctk.CTk):
 
         # ── Status ────────────────────────────────────────────────────
         self._research_status = ctk.CTkLabel(
-            tab, text="Jurisdiction is taken from the sidebar selector.",
+            tab, text="Pick a jurisdiction from the list or type any state abbreviation (e.g. NE, CA).",
             text_color="gray55", anchor="w", font=ctk.CTkFont(size=11))
         self._research_status.grid(
             row=r, column=0, padx=16, pady=(2, 4), sticky="ew"); r += 1
@@ -922,7 +932,7 @@ class LegalAIApp(ctk.CTk):
         self._research_result_box.delete("0.0", "end")
         self._research_result_box.configure(state="disabled")
 
-        state_str  = self._state_var.get()
+        state_str  = self._research_state_var.get().strip().upper() or "FEDERAL"
         export_fmt = self._research_export_var.get()
 
         threading.Thread(
