@@ -203,6 +203,31 @@ Use the case facts below to fill in the party / matter lines and case number.
         )
 
     @staticmethod
+    def _fix_caption_parens(text: str, paren_col: int = 44) -> str:
+        """
+        Re-align the ) characters in the caption to a fixed column so the
+        bracket column is straight regardless of how the LLM padded the lines.
+
+        Only lines in the caption (before the first long ===... separator) are
+        touched. Lines with no ) are left alone. Right-column text (Case No.,
+        Division, Judge) that follows the ) is preserved with four spaces gap.
+        """
+        lines = text.split('\n')
+        result = []
+        past_caption = False
+        for line in lines:
+            if not past_caption and line.strip().startswith('=') and len(line.strip()) >= 20:
+                past_caption = True
+            if not past_caption and ')' in line:
+                paren_idx = line.index(')')
+                left = line[:paren_idx].rstrip()
+                right = line[paren_idx + 1:].strip()
+                padded = left.ljust(paren_col)
+                line = f"{padded})    {right}".rstrip() if right else f"{padded})"
+            result.append(line)
+        return '\n'.join(result)
+
+    @staticmethod
     def _strip_markdown(text: str) -> str:
         """
         Remove markdown syntax from AI-generated legal document text.
@@ -940,6 +965,7 @@ Signature: _______________________________ Date: _______________
                     review_log_filename = f"{idx:02d}_{doc_type}_REVIEW_LOG.txt"
                     self._save(out_dir, review_log_filename, review_log)
 
+                content = self._fix_caption_parens(content)
                 content += self._DISCLAIMER
                 file_path = self._save(out_dir, filename, content)
                 generated.append(GeneratedDocument(
