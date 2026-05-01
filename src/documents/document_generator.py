@@ -351,7 +351,26 @@ Order documents by priority (1 = must file first)."""
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0]
             return json.loads(text)
         except (json.JSONDecodeError, IndexError):
-            # Fallback plan
+            # Fallback plan — varies by mode
+            if doc_mode == "reply":
+                return {
+                    "petition_type": "Response / Reply",
+                    "court_name": f"{state.value} District Court",
+                    "court_address": None,
+                    "filing_fee_estimate": "Unknown — check with clerk",
+                    "documents": [
+                        {"doc_type": "response", "title": "Response to Petition", "description": "Response to the opposing party's petition",
+                         "requires_signature": True, "requires_notarization": False, "filing_required": True, "priority": 1},
+                        {"doc_type": "affidavit", "title": "Affidavit of Facts", "description": "Sworn statement of facts",
+                         "requires_signature": True, "requires_notarization": True, "filing_required": True, "priority": 2},
+                        {"doc_type": "exhibit_index", "title": "Exhibit Index", "description": "List of exhibits",
+                         "requires_signature": False, "requires_notarization": False, "filing_required": True, "priority": 3},
+                        {"doc_type": "certificate_of_service", "title": "Certificate of Service",
+                         "description": "Proof of service on respondent",
+                         "requires_signature": True, "requires_notarization": False, "filing_required": True, "priority": 4},
+                    ],
+                    "special_notes": [],
+                }
             return {
                 "petition_type": "Civil Rights Petition",
                 "court_name": f"{state.value} District Court",
@@ -882,8 +901,10 @@ Signature: _______________________________ Date: _______________
 
             content = None
 
-            if doc_type == "petition":
+            if doc_type == "petition" and doc_mode != "reply":
                 content = await self._gen_petition(doc_info, situation, analysis, clarifications, plan, state, case_law_context)
+            elif doc_type == "petition" and doc_mode == "reply":
+                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context)
             elif doc_type == "affidavit":
                 content = await self._gen_affidavit(doc_info, situation, analysis, clarifications, plan, state, case_law_context)
             elif doc_type == "exhibit_index":
