@@ -914,6 +914,7 @@ Signature: _______________________________ Date: _______________
         output_dir: Optional[str] = None,
         case_law_context: str = "",
         doc_mode: str = "petition",
+        case_documents_context: str = "",
     ) -> List[GeneratedDocument]:
         """
         Generate the complete package of documents needed to file the petition.
@@ -992,6 +993,7 @@ Signature: _______________________________ Date: _______________
                         situation=situation,
                         max_iterations=10,
                         verbose=True,
+                        case_documents_context=case_documents_context,
                     )
                     # Save review log alongside the document
                     review_log = "\n\n".join(r.format_for_log() for r in review_history)

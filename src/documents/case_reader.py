@@ -17,8 +17,9 @@ import io
 import zipfile
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -183,6 +184,99 @@ def _read_docx(path: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# DATE EXTRACTION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_MONTHS = {
+    "january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
+    "july":7,"august":8,"september":9,"october":10,"november":11,"december":12,
+    "jan":1,"feb":2,"mar":3,"apr":4,"jun":6,"jul":7,"aug":8,
+    "sep":9,"oct":10,"nov":11,"dec":12,
+}
+
+# Ordered from most- to least-specific so the first match wins.
+_DATE_PATTERNS: List[Tuple[str, str]] = [
+    # ISO: 2024-01-15 or 2024/01/15
+    (r"\b(20\d{2})[-/](0[1-9]|1[0-2])[-/](0[1-9]|[12]\d|3[01])\b", "%Y-%m-%d"),
+    # US numeric: 01/15/2024 or 01-15-2024
+    (r"\b(0[1-9]|1[0-2])[-/](0[1-9]|[12]\d|3[01])[-/](20\d{2})\b", "%m-%d-%Y"),
+    # Month-name long: January 15, 2024 / Jan 15 2024
+    (r"\b(January|February|March|April|May|June|July|August|September|October|November|December"
+     r"|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+"
+     r"(\d{1,2}),?\s+(20\d{2})\b", "month_name"),
+    # Ordinal: 15th day of January, 2024
+    (r"\b(\d{1,2})(?:st|nd|rd|th)\s+day\s+of\s+"
+     r"(January|February|March|April|May|June|July|August|September|October|November|December"
+     r"|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec),?\s+(20\d{2})\b", "ordinal"),
+    # Year-only: 2024 (weakest — used as fallback)
+    (r"\b(20[12]\d)\b", "year_only"),
+]
+
+
+def _parse_date_match(pattern_type: str, groups: tuple) -> Optional[datetime]:
+    try:
+        if pattern_type == "%Y-%m-%d":
+            return datetime(int(groups[0]), int(groups[1]), int(groups[2]))
+        if pattern_type == "%m-%d-%Y":
+            return datetime(int(groups[2]), int(groups[0]), int(groups[1]))
+        if pattern_type == "month_name":
+            month = _MONTHS.get(groups[0].lower().rstrip("."))
+            if month:
+                return datetime(int(groups[2]), month, int(groups[1]))
+        if pattern_type == "ordinal":
+            month = _MONTHS.get(groups[1].lower())
+            if month:
+                return datetime(int(groups[2]), month, int(groups[0]))
+        if pattern_type == "year_only":
+            return datetime(int(groups[0]), 1, 1)
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
+def _extract_date(text: str) -> Optional[datetime]:
+    """Return the first recognisable date found in *text*, or None."""
+    for pattern, ptype in _DATE_PATTERNS:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            result = _parse_date_match(ptype, m.groups())
+            if result:
+                return result
+    return None
+
+
+def _document_date(doc: "CaseDocument") -> datetime:
+    """
+    Best-effort document date for chronological sorting.
+    Priority: date in filename → date in first 3 000 chars of text → file mtime.
+    Returns datetime.max for unreadable documents (sink them to the end).
+    """
+    if doc.read_error and not doc.text_content:
+        return datetime.max
+
+    # 1. Try filename first (most reliable for court-filed documents)
+    stem = Path(doc.filename).stem
+    d = _extract_date(stem.replace("_", " ").replace("-", " "))
+    if d:
+        return d
+
+    # 2. Try the opening text of the document
+    if doc.text_content:
+        d = _extract_date(doc.text_content[:3000])
+        if d:
+            return d
+
+    # 3. Fall back to filesystem mtime
+    try:
+        mtime = Path(doc.file_path).stat().st_mtime
+        return datetime.fromtimestamp(mtime)
+    except Exception:
+        pass
+
+    return datetime.max
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SCANNER
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -201,12 +295,9 @@ class CaseDirectoryScanner:
 
     def scan(self, directory: str) -> List[CaseDocument]:
         """
-        Scan the directory for all supported documents and extract text.
+        Scan the directory for all supported documents, extract text, and
+        return them sorted chronologically by their document date.
 
-        Files are sorted by name (which usually reflects filing order when
-        numbered, e.g. 01_petition.txt, 02_response.txt).
-
-        Returns a list of CaseDocument objects.
         Raises FileNotFoundError / NotADirectoryError if the path is invalid.
         """
         dir_path = Path(directory)
@@ -215,18 +306,33 @@ class CaseDirectoryScanner:
         if not dir_path.is_dir():
             raise NotADirectoryError(f"Not a directory: {directory}")
 
-        files = sorted(
+        file_paths = sorted(
             [f for f in dir_path.iterdir()
              if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS],
             key=lambda f: f.name.lower(),
         )
+        return self._read_and_sort([str(f) for f in file_paths])
 
+    def scan_files(self, file_paths: List[str]) -> List[CaseDocument]:
+        """
+        Read a list of individual file paths (not necessarily in one directory),
+        extract text, and return them sorted chronologically by document date.
+        Unsupported file types are silently skipped.
+        """
+        supported = [
+            p for p in file_paths
+            if Path(p).suffix.lower() in SUPPORTED_EXTENSIONS
+        ]
+        return self._read_and_sort(supported)
+
+    def _read_and_sort(self, file_paths: List[str]) -> List[CaseDocument]:
+        """Read files, respect MAX_TOTAL_CHARS, then sort chronologically."""
         documents: List[CaseDocument] = []
         total_chars = 0
 
-        for file_path in files:
+        for path_str in file_paths:
+            file_path = Path(path_str)
             if total_chars >= MAX_TOTAL_CHARS:
-                # Still register the document but note it was skipped
                 documents.append(CaseDocument(
                     filename=file_path.name,
                     file_path=str(file_path),
@@ -236,11 +342,12 @@ class CaseDirectoryScanner:
                     read_error="Skipped — total context limit reached",
                 ))
                 continue
-
             doc = self._read_file(file_path)
             documents.append(doc)
             total_chars += doc.char_count
 
+        # Sort chronologically; documents whose date cannot be determined go last
+        documents.sort(key=_document_date)
         return documents
 
     def _read_file(self, file_path: Path) -> CaseDocument:
@@ -307,22 +414,54 @@ class CaseDirectoryScanner:
 
     def build_context_block(self, documents: List[CaseDocument]) -> str:
         """
-        Format all readable documents into a single context block for
-        inclusion in an AI prompt.
+        Format all documents into a single context block for AI prompts.
+
+        Opens with a CHRONOLOGICAL CASE FILE INDEX (one line per document
+        with its inferred date and type) so the agent immediately sees the
+        timeline, then appends the full text of each document in order.
         """
-        parts = []
-        for doc in documents:
+        # ── Chronological index ───────────────────────────────────────────
+        index_lines = ["CHRONOLOGICAL CASE FILE INDEX", "=" * 60]
+        for i, doc in enumerate(documents, 1):
+            date_obj = _document_date(doc)
+            if date_obj == datetime.max:
+                date_str = "date unknown"
+            elif date_obj.month == 1 and date_obj.day == 1 and \
+                    doc.text_content and str(date_obj.year) in doc.text_content[:3000]:
+                # year-only match — don't show MM-DD
+                date_str = str(date_obj.year)
+            else:
+                date_str = date_obj.strftime("%Y-%m-%d")
+
+            status = f"[UNREADABLE: {doc.read_error}]" if doc.read_error else \
+                     "[TRUNCATED]" if doc.truncated else ""
+            index_lines.append(
+                f"  {i:>2}. {date_str}  |  {doc.doc_type:<18}  |  "
+                f"{doc.filename}  {status}".rstrip()
+            )
+        index_lines.append("=" * 60)
+        index_block = "\n".join(index_lines)
+
+        # ── Full document text ────────────────────────────────────────────
+        parts = [index_block]
+        for i, doc in enumerate(documents, 1):
             if doc.read_error or not doc.text_content:
                 parts.append(
-                    f"\n[DOCUMENT: {doc.filename} | Type: {doc.doc_type}]\n"
+                    f"\n[DOCUMENT {i}: {doc.filename} | Type: {doc.doc_type}]\n"
                     f"[Could not read: {doc.read_error or 'empty file'}]\n"
                 )
             else:
                 truncation_note = " [TRUNCATED]" if doc.truncated else ""
+                date_obj = _document_date(doc)
+                date_label = date_obj.strftime("%Y-%m-%d") \
+                    if date_obj != datetime.max else "date unknown"
                 parts.append(
-                    f"\n{'='*60}\n"
-                    f"[DOCUMENT: {doc.filename} | Type: {doc.doc_type}{truncation_note}]\n"
-                    f"{'='*60}\n"
+                    f"\n{'=' * 60}\n"
+                    f"[DOCUMENT {i}: {doc.filename}"
+                    f" | Type: {doc.doc_type}"
+                    f" | Date: {date_label}"
+                    f"{truncation_note}]\n"
+                    f"{'=' * 60}\n"
                     f"{doc.text_content}\n"
                 )
         return "\n".join(parts)

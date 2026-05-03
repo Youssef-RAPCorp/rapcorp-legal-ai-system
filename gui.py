@@ -692,6 +692,7 @@ class LegalAIApp(ctk.CTk):
             clarifications={},
             state=state_enum,
             doc_mode=doc_mode,
+            case_files=case_files,
         )
 
         # Phase 3 — Convert every .txt output to .docx

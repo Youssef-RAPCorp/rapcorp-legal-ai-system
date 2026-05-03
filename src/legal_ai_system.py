@@ -827,6 +827,7 @@ Return ONLY valid JSON:
         state: USState = USState.FEDERAL,
         output_dir: Optional[str] = None,
         doc_mode: str = "petition",
+        case_files: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Generate all documents required to file the petition.
@@ -879,6 +880,21 @@ Return ONLY valid JSON:
             except Exception as e:
                 print(f"    Case law retrieval failed (non-fatal): {e}")
 
+        # Read and chronologically sort any uploaded case documents so the
+        # reviewer can cross-check the generated docs against prior filings.
+        case_documents_context = ""
+        if case_files:
+            print("  Reading and sorting case documents chronologically...")
+            try:
+                from src.documents.case_reader import CaseDirectoryScanner
+                scanner = CaseDirectoryScanner(gemini_api_key=self.config.google_api_key)
+                case_docs = scanner.scan_files(case_files)
+                case_documents_context = scanner.build_context_block(case_docs)
+                readable = sum(1 for d in case_docs if not d.read_error and d.char_count > 0)
+                print(f"    {readable}/{len(case_docs)} case documents loaded in chronological order")
+            except Exception as e:
+                print(f"    Case document load failed (non-fatal): {e}")
+
         docs: List[GeneratedDocument] = await self.document_generator.generate_petition_package(
             situation=situation,
             analysis=analysis,
@@ -887,6 +903,7 @@ Return ONLY valid JSON:
             output_dir=output_dir,
             case_law_context=case_law_context,
             doc_mode=doc_mode,
+            case_documents_context=case_documents_context,
         )
 
         return [
