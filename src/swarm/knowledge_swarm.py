@@ -388,12 +388,14 @@ class CaseLawRetriever(BaseAgent):
         total_cost = 0.0
         total_tokens = 0
 
-        # ── Step 1: Use LLM to extract focused search terms ────────────────
+        # ── Step 1: Use LLM to extract multiple focused search angles ─────
         search_strategy: Dict[str, Any] = {}
-        search_terms: list = [query]   # fallback: use raw query
+        search_terms: list = [query]
+        date_after: Optional[str] = None
 
         if self.llm:
             strategy_prompt = f"""Extract the best legal search terms for a CourtListener case law search.
+Generate diverse query angles so we find the maximum number of relevant precedents.
 
 Legal question: {query}
 Jurisdiction: {state.value}
@@ -401,12 +403,19 @@ Domain: {domain.value}
 
 Return a JSON object:
 {{
-    "primary_query": "the best single search string for full-text case law search",
-    "search_terms": ["term1", "term2", "term3"],
+    "primary_query": "the single best full-text search string",
+    "search_terms": [
+        "angle 1 — core legal theory (e.g. 'wrongful termination at-will')",
+        "angle 2 — statutory/constitutional hook (e.g. 'Title VII retaliation')",
+        "angle 3 — remedy or damages framing (e.g. 'reinstatement back pay')",
+        "angle 4 — procedural posture (e.g. 'motion to dismiss employment')",
+        "angle 5 — fact pattern keywords (e.g. 'hostile work environment supervisor')"
+    ],
     "case_types": ["supreme_court", "appeals", "district"],
-    "date_range": {{"start": "YYYY", "end": "YYYY"}},
+    "date_range": {{"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}},
     "relevance_factors": ["factor1", "factor2"]
-}}"""
+}}
+Provide exactly 5 distinct search_terms — each must cover a different angle."""
             llm_result = await self._call_llm(strategy_prompt, task="retrieval", return_json=True)
             total_cost += llm_result.get("cost", 0)
             total_tokens += llm_result.get("input_tokens", 0) + llm_result.get("output_tokens", 0)
@@ -414,39 +423,81 @@ Return a JSON object:
             try:
                 search_strategy = json.loads(llm_result.get("text", "{}"))
                 primary_query = search_strategy.get("primary_query", "").strip()
+                extra_terms = [t for t in search_strategy.get("search_terms", []) if t.strip()]
+                # primary first, then the additional angles, then raw query as backstop
+                all_terms = []
                 if primary_query:
-                    search_terms = [primary_query]
+                    all_terms.append(primary_query)
+                all_terms.extend(extra_terms)
+                if query not in all_terms:
+                    all_terms.append(query)
+                search_terms = all_terms[:6]  # cap at 6 parallel calls
+
+                dr = search_strategy.get("date_range", {})
+                if isinstance(dr, dict) and dr.get("start"):
+                    raw_start = dr["start"]
+                    # accept "YYYY" or "YYYY-MM-DD"
+                    if len(raw_start) == 4:
+                        date_after = f"{raw_start}-01-01"
+                    else:
+                        date_after = raw_start
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        # ── Step 2: Hit CourtListener if configured ─────────────────────────
+        # ── Step 2: Hit CourtListener — all queries in parallel ────────────
         cases_data: list = []
         api_status = "not_configured"
 
         if self.courtlistener and self.courtlistener.is_configured:
             jurisdiction = state.value if state != USState.FEDERAL else None
-            cl_result = await self.courtlistener.search_opinions(
-                query=search_terms[0],
-                jurisdiction=jurisdiction,
-                page_size=10,
-            )
 
-            if cl_result.api_available:
-                api_status = "ok"
-                for case in cl_result.cases:
-                    cases_data.append({
-                        "case_name": case.case_name,
-                        "citation": case.citation,
-                        "court": case.court,
-                        "date_filed": case.date_filed,
-                        "url": case.url,
-                        "snippet": case.snippet[:300] if case.snippet else "",
-                        "relevance_score": case.relevance_score,
-                        "cluster_id": case.cluster_id,
-                        "docket_number": case.docket_number,
-                    })
-            else:
-                api_status = f"error: {cl_result.error}"
+            # Build one coroutine per search term (relevance-ranked)
+            # Plus one recency pass on the primary query to surface recent rulings
+            async def _search(q: str, order: str = "score desc") -> list:
+                res = await self.courtlistener.search_opinions(
+                    query=q,
+                    jurisdiction=jurisdiction,
+                    date_after=date_after,
+                    page_size=20,
+                    order_by=order,
+                )
+                return res.cases if res.api_available else []
+
+            coroutines = [_search(t) for t in search_terms]
+            # Extra recency pass: primary query sorted by date so we don't miss
+            # important recent decisions that rank low on relevance score
+            coroutines.append(_search(search_terms[0], "dateFiled desc"))
+
+            all_results = await asyncio.gather(*coroutines, return_exceptions=True)
+
+            seen_clusters: set = set()
+            merged: list = []
+            for batch in all_results:
+                if isinstance(batch, Exception):
+                    continue
+                for case in batch:
+                    if case.cluster_id and case.cluster_id in seen_clusters:
+                        continue
+                    seen_clusters.add(case.cluster_id)
+                    merged.append(case)
+
+            # Sort by relevance score descending, keep top 30 unique cases
+            merged.sort(key=lambda c: c.relevance_score, reverse=True)
+            merged = merged[:30]
+
+            api_status = "ok" if merged else "no_results"
+            for case in merged:
+                cases_data.append({
+                    "case_name": case.case_name,
+                    "citation": case.citation,
+                    "court": case.court,
+                    "date_filed": case.date_filed,
+                    "url": case.url,
+                    "snippet": case.snippet[:500] if case.snippet else "",
+                    "relevance_score": case.relevance_score,
+                    "cluster_id": case.cluster_id,
+                    "docket_number": case.docket_number,
+                })
 
         return AgentResult(
             agent_type=self.agent_type,
@@ -455,6 +506,7 @@ Return a JSON object:
                 "search_strategy": search_strategy,
                 "cases": cases_data,
                 "count": len(cases_data),
+                "queries_fired": len(search_terms) + 1,
                 "jurisdiction": state.value,
                 "domain": domain.value,
                 "api_status": api_status,
