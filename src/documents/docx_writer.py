@@ -20,6 +20,8 @@ try:
     from docx import Document
     from docx.shared import Pt, Inches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
     DOCX_AVAILABLE = True
 except ImportError:
     DOCX_AVAILABLE = False
@@ -28,6 +30,26 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════════════════════
 # TXT → DOCX CONVERSION
 # ═══════════════════════════════════════════════════════════════════════════════
+
+# Tab stop for caption bracket column: 3.5 inches from the left text margin.
+# Twips = 1/1440 inch.  3.5 × 1440 = 5040.
+_CAPTION_TAB_TWIPS = 5040
+
+
+def _add_caption_tab_stop(para) -> None:
+    """Set a left-aligned tab stop at _CAPTION_TAB_TWIPS on *para*.
+
+    This makes every \t before ) in a caption line jump to exactly the same
+    horizontal position regardless of how wide (or bold) the preceding text is.
+    """
+    pPr = para._p.get_or_add_pPr()
+    tabs_el = OxmlElement('w:tabs')
+    tab = OxmlElement('w:tab')
+    tab.set(qn('w:val'), 'left')
+    tab.set(qn('w:pos'), str(_CAPTION_TAB_TWIPS))
+    tabs_el.append(tab)
+    pPr.append(tabs_el)
+
 
 def txt_to_docx(txt_path: str, docx_path: str, title: str = "") -> None:
     """
@@ -77,8 +99,39 @@ def txt_to_docx(txt_path: str, docx_path: str, title: str = "") -> None:
     _SEPARATOR_RE = re.compile(r'^[═─━=\-─]{4,}$')
     _NUMBERED_RE  = re.compile(r'^\d+[.)]\s')
 
+    in_caption = True   # True until the first === separator line
+
     for line in content.split("\n"):
         stripped = line.strip()
+
+        # Track end of caption region
+        if in_caption and _SEPARATOR_RE.match(stripped):
+            in_caption = False
+
+        # Caption bracket line — left text + TAB + ) + optional case info
+        # _fix_caption_parens emits "LEFT\t)" or "LEFT\t)    CASE INFO"
+        if in_caption and '\t)' in line:
+            parts = line.split('\t)', 1)
+            left_text = parts[0]
+            right_text = parts[1].strip() if len(parts) > 1 else ""
+            p = doc.add_paragraph()
+            _add_caption_tab_stop(p)
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after  = Pt(2)
+            # Left party text (may be bold if ALL CAPS — honour that)
+            rl = p.add_run(left_text)
+            rl.font.size = Pt(12)
+            if left_text == left_text.upper() and left_text.strip():
+                rl.bold = True
+            # Tab then bracket
+            p.add_run('\t')
+            rb = p.add_run(')')
+            rb.font.size = Pt(12)
+            # Right-column case info (Case No., Judge, etc.)
+            if right_text:
+                rc = p.add_run('    ' + right_text)
+                rc.font.size = Pt(12)
+            continue
 
         # Separator → thin horizontal rule (em-dashes)
         if _SEPARATOR_RE.match(stripped):

@@ -234,12 +234,14 @@ Use the case facts below to fill in the party / matter lines and case number.
     @staticmethod
     def _fix_caption_parens(text: str, paren_col: int = 44) -> str:
         """
-        Re-align the ) characters in the caption to a fixed column so the
-        bracket column is straight regardless of how the LLM padded the lines.
+        Re-format caption lines so the ) is separated from the left-column text
+        by a single TAB character.  txt_to_docx will set a tab stop at a fixed
+        inch position, giving pixel-perfect alignment in the .docx regardless of
+        bold/regular font width differences.
 
         Only lines in the caption (before the first long ===... separator) are
-        touched. Lines with no ) are left alone. Right-column text (Case No.,
-        Division, Judge) that follows the ) is preserved with four spaces gap.
+        touched. Right-column text (Case No., Division, Judge) is preserved
+        after the ).
         """
         lines = text.split('\n')
         result = []
@@ -251,8 +253,8 @@ Use the case facts below to fill in the party / matter lines and case number.
                 paren_idx = line.index(')')
                 left = line[:paren_idx].rstrip()
                 right = line[paren_idx + 1:].strip()
-                padded = left.ljust(paren_col)
-                line = f"{padded})    {right}".rstrip() if right else f"{padded})"
+                # \t before ) — tab stop in docx handles exact column position
+                line = f"{left}\t)    {right}".rstrip() if right else f"{left}\t)"
             result.append(line)
         return '\n'.join(result)
 
