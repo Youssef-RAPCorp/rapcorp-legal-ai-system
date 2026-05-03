@@ -507,7 +507,9 @@ DRAFTING INSTRUCTIONS:
 - Leave blanks like [DATE] or [CASE NUMBER] where information is unknown
 - Cite every statute from the KEY STATUTES list above by its exact section number
   in the body of the legal claims — do not substitute generic references to "state law"
-- Cite relevant case law from the list above where it strengthens each claim
+- You MUST cite case law from the RELEVANT CASE LAW list above — include at
+  least 3 cases by full name and citation in the Legal Claims section, one per
+  major argument. Never omit the case law block.
 - Plain text only — NO markdown, NO asterisks for bold, NO pound signs for headings,
   NO hyphens as bullet markers. Use Roman numerals (I., II.) or letters (A., B.)
   for sections, and plain numbered paragraphs.
@@ -775,6 +777,9 @@ DRAFTING INSTRUCTIONS:
   numbered argument sections, prayer for relief, signature block
 - LEAD with the strongest argument and any admissions by the opposing party
 - Cite every applicable statute by its full section number
+- You MUST cite case law from the RELEVANT CASE LAW list above — include at
+  least 3 cases by full name and citation, one anchoring each major argument.
+  Never omit the case law block.
 - Reference exhibits by letter (Exhibit A, B, C…)
 - Number every paragraph
 - Plain text only — NO markdown, NO asterisks, NO pound signs for headings.

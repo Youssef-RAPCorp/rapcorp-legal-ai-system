@@ -852,18 +852,23 @@ Return ONLY valid JSON:
                     context={"state": state, "domain": LegalDomain.CIVIL_RIGHTS},
                     mode="quick",
                 )
+                # Log any agent-level errors so failures are visible
+                for err in swarm_results.get("errors", []):
+                    print(f"    Swarm agent error [{err.get('agent')}]: {err.get('error')}")
+
                 cl_data = swarm_results.get("results", {}).get("case_law_retriever", {})
                 cases = cl_data.get("cases", [])
                 api_status = cl_data.get("api_status", "not_configured")
+                queries_fired = cl_data.get("queries_fired", 1)
 
                 if cases:
-                    lines = [f"[CourtListener — {len(cases)} cases retrieved]"]
+                    lines = [f"[CourtListener — {len(cases)} cases retrieved via {queries_fired} queries]"]
                     for c in cases:
                         name = c.get("case_name", "Unknown")
                         citation = c.get("citation", "")
                         court = c.get("court", "")
                         date = c.get("date_filed", "")
-                        snippet = (c.get("snippet") or "")[:200]
+                        snippet = (c.get("snippet") or "")[:500]
                         url = c.get("url", "")
                         lines.append(
                             f"\n• {name}"
@@ -874,7 +879,7 @@ Return ONLY valid JSON:
                             + (f"\n  {url}" if url else "")
                         )
                     case_law_context = "\n".join(lines)
-                    print(f"    {len(cases)} cases from CourtListener (status: {api_status})")
+                    print(f"    {len(cases)} cases from CourtListener via {queries_fired} queries (status: {api_status})")
                 else:
                     print(f"    No cases retrieved (CourtListener status: {api_status})")
             except Exception as e:
