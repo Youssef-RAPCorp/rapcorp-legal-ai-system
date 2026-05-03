@@ -132,10 +132,10 @@ class DocumentReviewer:
         Run one review pass using Flash. Returns a ReviewPass with scored issues.
         """
         # Truncate large inputs to keep token budget manageable
-        chain_truncated = chain_narrative[:6000]
-        stmts_truncated = statements_index[:6000]
-        evidence_truncated = evidence_summary[:4000]
-        doc_truncated = doc_content[:12000]
+        chain_truncated = chain_narrative[:12000]
+        stmts_truncated = statements_index[:10000]
+        evidence_truncated = evidence_summary[:6000]
+        doc_truncated = doc_content[:16000]
         case_docs_truncated = case_documents_context[:4000] if case_documents_context else ""
 
         case_docs_block = ""
@@ -176,21 +176,28 @@ DOCUMENT UNDER REVIEW: {doc_title} (Iteration {iteration})
 
 AUDIT INSTRUCTIONS:
 For each issue found, determine severity:
-• CRITICAL — A key event, admission, or verbatim quote from the chain of events
-  is entirely absent from the document, OR a fact is stated incorrectly
-• MAJOR — An important event is mentioned but incomplete, vague, or missing its
-  verbatim quote; chronology is wrong; a claim lacks its statutory basis
+• CRITICAL — A key event, admission, or verbatim quote is entirely absent; a fact
+  is stated incorrectly; OR specific information (name, number, quote) has been
+  replaced with a vague generalization (information_loss)
+• MAJOR — An important event is mentioned but incomplete or vague; chronology is
+  wrong; a claim lacks its statutory basis; a specific date/number from the source
+  is approximated or rounded
 • MINOR — Minor omission, imprecise wording, formatting inconsistency
 
 Check specifically:
-1. COMPLETENESS — Is every event from the chain of events represented?
+1. COMPLETENESS     — Is every event from the chain of events represented?
 2. VERBATIM ACCURACY — Are all direct quotes reproduced exactly (not paraphrased)?
 3. CHRONOLOGICAL ORDER — Are facts presented in the correct sequence?
 4. FACTUAL ACCURACY — Are all stated facts consistent with the source evidence?
-5. LEGAL BASIS — Does each legal claim cite a statute or standard?
+5. LEGAL BASIS      — Does each legal claim cite a statute or standard?
 6. EXHIBIT REFERENCES — Are all key evidence items referenced as exhibits?
-7. CASE FILE CONSISTENCY — Are all facts, party names, dates, and prior rulings
+7. CASE FILE CONSISTENCY — Are facts, party names, dates, and prior rulings
    consistent with the existing case documents (if any are provided above)?
+8. INFORMATION FIDELITY — Has any specific fact been replaced with a vague
+   stand-in? (e.g. "an incident" instead of the named event; "a large amount"
+   instead of the exact dollar figure; a paraphrase instead of the exact quote;
+   "on one occasion" instead of the specific date available in the source).
+   Every such substitution is CRITICAL information_loss.
 
 Scoring:
 • Start at 100
@@ -207,7 +214,7 @@ Return ONLY valid JSON:
     "issues": [
         {{
             "severity": "critical|major|minor",
-            "category": "omission|misstatement|inaccuracy|quote_error|inconsistency|missing_legal_basis",
+            "category": "omission|misstatement|inaccuracy|quote_error|inconsistency|missing_legal_basis|information_loss",
             "description": "Specific description of the issue",
             "source_reference": "Chain Event [N] | Statement [SN] | Evidence item [N] @ file:location",
             "suggested_fix": "Exact text to add or change, with source quote if applicable"
@@ -284,10 +291,10 @@ Return ONLY valid JSON:
             for i, iss in enumerate(review.issues)
         ) or "No issues — document already approved."
 
-        chain_truncated = chain_narrative[:6000]
-        stmts_truncated = statements_index[:5000]
-        doc_truncated = doc_content[:14000]
-        case_docs_truncated = case_documents_context[:3000] if case_documents_context else ""
+        chain_truncated = chain_narrative[:12000]
+        stmts_truncated = statements_index[:8000]
+        doc_truncated = doc_content[:16000]
+        case_docs_truncated = case_documents_context[:4000] if case_documents_context else ""
 
         case_docs_block = ""
         if case_docs_truncated:
@@ -333,8 +340,12 @@ REVISION INSTRUCTIONS:
 4. For quote errors: replace paraphrases with exact verbatim quotes from the source
 5. For omissions: add the missing events/statements in the correct chronological position
 6. For legal basis issues: add the appropriate statute citation
-7. Ensure all facts are consistent with the existing case file documents (if provided)
-8. Do NOT add meta-commentary or revision notes — produce the final clean document only
+7. For information_loss: replace every vague stand-in with the specific fact from the
+   source — exact name, exact number, exact date, exact quote. Never go the other
+   direction (specific → vague). If the source only has an approximate date, keep
+   that approximation rather than inventing precision.
+8. Ensure all facts are consistent with the existing case file documents (if provided)
+9. Do NOT add meta-commentary or revision notes — produce the final clean document only
 
 Write the complete revised {doc_title} now:"""
 

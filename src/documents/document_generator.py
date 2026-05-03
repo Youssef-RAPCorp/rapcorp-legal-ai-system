@@ -73,6 +73,35 @@ class DocumentGenerator:
 
     _DISCLAIMER = ""
 
+    # Injected into every substantive generation prompt to enforce zero
+    # information loss between source evidence and the drafted document.
+    _FIDELITY_RULES = """
+INFORMATION FIDELITY — NON-NEGOTIABLE RULES:
+Every specific fact from the evidence and chain of events must appear in this
+document exactly as it exists in the source. No exceptions.
+
+  1. DATES & TIMES  — Use the most specific date/time available in the source.
+                      If the source says "January 14, 2024," write that — do not
+                      soften it to "early 2024." If the source only says "early
+                      2024," use that approximation — do not invent precision that
+                      isn't there. Match the specificity of the source, no more,
+                      no less.
+  2. NAMES          — Every person, organization, place, and title must appear
+                      verbatim. Do not substitute pronouns or generic labels.
+  3. NUMBERS        — Dollar amounts, durations, counts, distances — reproduce
+                      exactly. Never write "thousands of dollars" if the source
+                      says "$47,500."
+  4. VERBATIM QUOTES— Any statement in quotation marks in the source must be
+                      quoted exactly. Paraphrasing a direct quote is forbidden.
+  5. EVERY EVENT    — Every event in the chain of events must be represented.
+                      Collapsing two distinct events into one vague sentence is
+                      an omission. Each event gets its own paragraph.
+  6. EVIDENCE ITEMS — Every piece of evidence in the evidence summary must be
+                      referenced in the document body as an exhibit.
+  7. NO VAGUE STAND-INS — "an incident occurred" is never acceptable if the
+                      source describes that incident specifically. Always name
+                      what happened, when, where, and who was involved."""
+
     def __init__(self, config: LegalAIConfig):
         if not GENAI_AVAILABLE:
             raise ImportError("google-generativeai not installed.")
@@ -462,6 +491,8 @@ EVIDENCE SUMMARY:
 {self._evidence_summary_for_prompt(analysis)}
 {self._chain_block_for_prompt(analysis)}{case_law_block}{strength_block}{statutes_block}
 
+{self._FIDELITY_RULES}
+
 DRAFTING INSTRUCTIONS:
 - Use the standard format for a {state.value} court petition
 - Include: case caption, introduction, parties, jurisdiction/venue,
@@ -473,7 +504,6 @@ DRAFTING INSTRUCTIONS:
   section with their own header, not folded into other paragraphs
 - Number every paragraph
 - Reference exhibits as Exhibit A, B, C etc. for each piece of evidence
-- Be precise, factual, and professional — no hyperbole
 - Leave blanks like [DATE] or [CASE NUMBER] where information is unknown
 - Cite every statute from the KEY STATUTES list above by its exact section number
   in the body of the legal claims — do not substitute generic references to "state law"
@@ -514,13 +544,14 @@ EVIDENCE ITEMS TO INCORPORATE:
 {self._evidence_summary_for_prompt(analysis)}
 {self._chain_block_for_prompt(analysis)}{case_law_block}
 
+{self._FIDELITY_RULES}
+
 DRAFTING INSTRUCTIONS:
 - Written in FIRST PERSON from the petitioner's perspective ("I, [Petitioner Name], ...")
 - Include: jurat (I swear/affirm under penalty of perjury...), statement of
   personal knowledge, numbered factual paragraphs, signature block, notary block
-- Each paragraph should state ONE specific fact with a specific date/time/location
+- Each paragraph states ONE specific fact with its exact date/time/location
 - Reference supporting evidence inline (e.g. "as shown in Exhibit A at timestamp 02:14")
-- Include ALL relevant facts from the evidence analysis
 - Leave [BRACKETS] for unknown information (dates, case numbers, etc.)
 - End with signature line, date line, and notary acknowledgment block
 - Plain text only — NO markdown, NO asterisks, NO pound signs for headings.
@@ -735,6 +766,8 @@ CLARIFICATIONS:
 EVIDENCE SUMMARY:
 {self._evidence_summary_for_prompt(analysis)}
 {self._chain_block_for_prompt(analysis)}{case_law_block}{statutes_block}{strength_block}
+
+{self._FIDELITY_RULES}
 
 DRAFTING INSTRUCTIONS:
 - Written in the voice of the RESPONDING PARTY (not initiating a new lawsuit)
