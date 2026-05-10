@@ -929,6 +929,17 @@ Return ONLY valid JSON:
                         print(f"    Thinking log saved → {_log_path.name}")
                     except Exception:
                         pass
+                    # Save opposition intelligence report separately
+                    if strategy_plan.opposition_analysis:
+                        _opp_path = Path(output_dir) / "00_OPPOSITION_REPORT.txt"
+                        try:
+                            _opp_path.write_text(
+                                strategy_plan.opposition_analysis.thinking_log,
+                                encoding="utf-8"
+                            )
+                            print(f"    Opposition report saved → {_opp_path.name}")
+                        except Exception:
+                            pass
             except Exception as e:
                 import traceback as _tb
                 print(f"    Thinking engine failed (non-fatal): {e}")

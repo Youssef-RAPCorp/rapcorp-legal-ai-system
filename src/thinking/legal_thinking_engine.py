@@ -32,6 +32,7 @@ from typing import Any, List, Optional
 
 from src.thinking.working_memory import WorkingMemory, Thought
 from src.thinking.legal_rag import LegalRAG
+from src.thinking.opposition_agent import OppositionAgent, OppositionAnalysis
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -54,6 +55,7 @@ class LegalStrategyPlan:
     argument_score:         float
     refinement_cycles:      int
     thinking_log:           str = ""   # full chain-of-thought log
+    opposition_analysis:    Optional["OppositionAnalysis"] = None
 
     def as_prompt_block(self) -> str:
         """Render as an injection block for document generation prompts."""
@@ -98,6 +100,8 @@ class LegalStrategyPlan:
                 lines.append(f"  — {c}")
         if self.prayer_for_relief:
             lines += ["", "PRAYER FOR RELIEF:", self.prayer_for_relief]
+        if self.opposition_analysis:
+            lines += ["", self.opposition_analysis.as_prompt_block()]
         lines += [
             "",
             f"[Strategy score: {self.argument_score:.1f}/10 | "
@@ -117,6 +121,7 @@ _STEP_NAMES = [
     "strategy_retrieval",
     "theory_selection",
     "evidence_mapping",
+    "opposition_analysis",   # NEW — full 5-step opposition intelligence sub-chain
     "weakness_scan",
     "attack_preemption",
     "narrative_arc",
@@ -139,6 +144,7 @@ class LegalThinkingEngine:
     def __init__(self, llm_client: Any):
         self._llm = llm_client
         self._rag = LegalRAG(llm_client)
+        self._opposition = OppositionAgent(llm_client)
 
     async def think(
         self,
@@ -182,29 +188,42 @@ class LegalThinkingEngine:
         print(f"  [Thinking 5/{total_steps}] Evidence mapping…")
         await self._step_evidence_mapping(mem, evidence_summary, case_documents_context)
 
-        # ─── Step 6: Weakness scan ───────────────────────────────────────
-        print(f"  [Thinking 6/{total_steps}] Weakness scan…")
+        # ─── Step 6: Opposition intelligence ─────────────────────────────
+        print(f"  [Thinking 6/{total_steps}] Opposition intelligence (5 sub-steps)…")
+        opp_analysis = await self._opposition.analyze(
+            situation        = situation,
+            evidence_summary = evidence_summary,
+            case_law_context = case_law_context,
+            case_framing     = mem.get_content("case_framing"),
+            judge_profile    = mem.get_content("judge_profile"),
+        )
+        # Store as a single thought so downstream steps can reference it
+        mem.add("opposition_analysis", opp_analysis.as_prompt_block(),
+                refs=["case_framing", "judge_profile", "evidence_mapping"])
+
+        # ─── Step 7: Weakness scan ───────────────────────────────────────
+        print(f"  [Thinking 7/{total_steps}] Weakness scan…")
         await self._step_weakness_scan(mem, situation)
 
-        # ─── Step 7: Attack preemption ───────────────────────────────────
-        print(f"  [Thinking 7/{total_steps}] Attack preemption…")
+        # ─── Step 8: Attack preemption ───────────────────────────────────
+        print(f"  [Thinking 8/{total_steps}] Attack preemption…")
         await self._step_attack_preemption(mem)
 
-        # ─── Step 8: Narrative arc ───────────────────────────────────────
-        print(f"  [Thinking 8/{total_steps}] Narrative arc…")
+        # ─── Step 9: Narrative arc ───────────────────────────────────────
+        print(f"  [Thinking 9/{total_steps}] Narrative arc…")
         await self._step_narrative_arc(mem, situation)
 
-        # ─── Step 9: Argument hardening ──────────────────────────────────
-        print(f"  [Thinking 9/{total_steps}] Argument hardening…")
+        # ─── Step 10: Argument hardening ─────────────────────────────────
+        print(f"  [Thinking 10/{total_steps}] Argument hardening…")
         score = await self._step_argument_hardening(mem)
 
-        # ─── Step 10: Final synthesis ────────────────────────────────────
-        print(f"  [Thinking 10/{total_steps}] Final synthesis…")
+        # ─── Step 11: Final synthesis ─────────────────────────────────────
+        print(f"  [Thinking 11/{total_steps}] Final synthesis…")
         final_text = await self._step_final_synthesis(mem, situation, state, doc_mode)
 
         print(f"  [Thinking] Complete. Score: {score:.1f}/10")
 
-        return self._build_plan(mem, final_text, score)
+        return self._build_plan(mem, final_text, score, opp_analysis)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Individual step implementations
@@ -340,57 +359,70 @@ Be specific. Reference actual documents, dates, and facts from the evidence summ
 
     async def _step_weakness_scan(self, mem, situation):
         ctx = mem.build_context(["case_framing", "judge_profile", "theory_selection",
-                                  "evidence_mapping"])
+                                  "evidence_mapping", "opposition_analysis"])
 
         prompt = f"""You are now playing the role of the most dangerous opposing counsel.
 
-FULL REASONING CHAIN (our strategy so far):
+FULL REASONING CHAIN (our strategy + complete opposition intelligence):
 {ctx}
 
 ORIGINAL SITUATION:
 {situation[:1000]}
 
-Attack our case. For each weakness you find:
+Given the opposition's strengths identified above, attack our case mercilessly.
+For each weakness you find:
   WEAKNESS: <what it is>
   SEVERITY: <critical / significant / minor>
   HOW THEY WILL USE IT: <exactly how opposing counsel will argue this in court>
+  WHICH OPPOSITION STRENGTH POWERS THIS: <connect to their strengths from the
+    opposition analysis — are they exploiting one of their strong points against us?>
   WHERE IT HURTS: <which of our theories does this attack?>
 
-Find at minimum 5 weaknesses.  Be brutal and honest.
-If you cannot find a fatal weakness, identify the 5 most significant vulnerabilities.
-Focus on what the JUDGE will actually be concerned about, not just technical legal points."""
+Find at minimum 5 weaknesses. Be brutal and honest.
+Focus on what the JUDGE will actually be concerned about, not just technical legal points.
+Pay special attention to weaknesses that align with the opposition's identified strengths."""
 
         result = await self._llm.generate(prompt=prompt, task="legal_synthesis")
         mem.add("weakness_scan", (result.get("text") or "").strip(),
-                refs=["case_framing", "judge_profile", "theory_selection", "evidence_mapping"])
+                refs=["case_framing", "judge_profile", "theory_selection",
+                      "evidence_mapping", "opposition_analysis"])
 
     async def _step_attack_preemption(self, mem):
-        ctx = mem.build_context(["judge_profile", "strategy_retrieval",
-                                  "theory_selection", "weakness_scan"])
+        ctx = mem.build_context(["judge_profile", "strategy_retrieval", "theory_selection",
+                                  "opposition_analysis", "weakness_scan"])
 
         prompt = f"""For every weakness identified, devise a specific, judge-targeted preemption.
+Additionally, incorporate the attack surface mapped against the opposition — turn their
+own weaknesses into offensive arguments we lead with rather than just defend against.
 
-REASONING CHAIN:
+REASONING CHAIN (includes full opposition intelligence and weakness scan):
 {ctx}
 
-For each identified weakness, provide:
+PART A — DEFENSIVE PREEMPTIONS
+For each weakness we have, provide:
   WEAKNESS: <restate it>
   PREEMPTION STRATEGY: <exactly what we say/file/argue to neutralize it BEFORE they raise it>
-  WHERE IN DOCUMENT: <which section should address this — introduction, argument section 2, etc.>
+  WHERE IN DOCUMENT: <which section — introduction, argument section, declaration, etc.>
   JUDGE APPEAL: <one sentence on why THIS judge will find our preemption persuasive>
 
 The best preemption strategies:
   — Turn the weakness into a strength ("The very fact that X happened actually proves...")
   — Establish the legal standard that makes the weakness irrelevant
   — Produce evidence that directly contradicts the opposing narrative
-  — Reframe the narrative so the weakness is seen in a different light
+
+PART B — OFFENSIVE INTEGRATION
+From the opposition's attack surface, identify the top 3 attacks WE make against THEM
+that belong in our opening documents (not just at trial). For each:
+  OFFENSIVE ARGUMENT: <what we lead with to destroy their position>
+  WHERE IT GOES: <which section of our petition/motion>
+  WHY NOW: <why raising this proactively helps us with the judge>
 
 Be specific to what THIS judge cares about, not generic legal advice."""
 
         result = await self._llm.generate(prompt=prompt, task="legal_synthesis")
         mem.add("attack_preemption", (result.get("text") or "").strip(),
                 refs=["judge_profile", "strategy_retrieval", "theory_selection",
-                      "weakness_scan"])
+                      "opposition_analysis", "weakness_scan"])
 
     async def _step_narrative_arc(self, mem, situation):
         ctx = mem.build_context(["case_framing", "judge_profile", "theory_selection",
@@ -530,7 +562,8 @@ Nothing generic. Nothing unsupported by the actual facts of this case."""
     # ─────────────────────────────────────────────────────────────────────────
 
     def _build_plan(
-        self, mem: WorkingMemory, final_text: str, score: float
+        self, mem: WorkingMemory, final_text: str, score: float,
+        opp_analysis: Optional[OppositionAnalysis] = None,
     ) -> LegalStrategyPlan:
         """Parse the final synthesis into a structured LegalStrategyPlan."""
         import re
@@ -586,4 +619,5 @@ Nothing generic. Nothing unsupported by the actual facts of this case."""
             argument_score=score,
             refinement_cycles=1,
             thinking_log=mem.build_full_log(),
+            opposition_analysis=opp_analysis,
         )
