@@ -30,10 +30,13 @@ SUPPORTED_EXTENSIONS = {
     ".txt", ".md", ".rtf", ".csv", ".json", ".html", ".htm", ".log",
     ".pdf",
     ".docx", ".doc",
+    ".png", ".jpg", ".jpeg", ".gif", ".tiff", ".tif", ".bmp", ".webp",
 }
 
-MAX_CHARS_PER_DOC = 60_000  # Truncate very large docs to keep prompt manageable
-MAX_TOTAL_CHARS   = 150_000 # Safety cap on total context fed to AI
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".tiff", ".tif", ".bmp", ".webp"}
+
+MAX_CHARS_PER_DOC = None  # No truncation — feed the full document
+MAX_TOTAL_CHARS   = None  # No total cap — include all documents
 
 # Filename keywords → document type label
 _TYPE_KEYWORDS: Dict[str, List[str]] = {
@@ -134,11 +137,15 @@ def _read_pdf(path: str, gemini_api_key: str = "") -> str:
         response = model.generate_content(
             [
                 uploaded,
-                "Extract ALL text from this document exactly as written. "
-                "Preserve paragraph structure. Do not summarize, omit, or reformat — "
-                "output the complete verbatim text content only.",
+                "This is a legal document. Extract ALL text exactly as written.\n"
+                "- Preserve paragraph structure and section headings.\n"
+                "- Extract every table row and column verbatim.\n"
+                "- Include all dates, names, case numbers, and signature blocks.\n"
+                "- Include headers, footers, and margin annotations.\n"
+                "- Do not summarize, paraphrase, or omit anything.\n"
+                "Output the complete verbatim text content only.",
             ],
-            generation_config=GenerationConfig(temperature=0.0, max_output_tokens=8192),
+            generation_config=GenerationConfig(temperature=0.0, max_output_tokens=16384),
         )
 
         extracted = response.text.strip() if hasattr(response, "text") else ""
@@ -156,12 +163,49 @@ def _read_pdf(path: str, gemini_api_key: str = "") -> str:
 
 
 def _read_docx(path: str) -> str:
-    # Try python-docx first
+    # Try python-docx first — extracts paragraphs AND tables
     try:
         import docx
+        from docx.oxml.ns import qn as _qn
+
         doc = docx.Document(path)
-        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-        return "\n".join(paragraphs)
+        parts: list[str] = []
+
+        def _iter_block_items(parent):
+            """Yield paragraphs and tables in document order."""
+            from docx.oxml.text.paragraph import CT_P
+            from docx.oxml.table import CT_Tbl
+            from docx.text.paragraph import Paragraph
+            from docx.table import Table
+            for child in parent.element.body:
+                if child.tag == _qn("w:p"):
+                    yield Paragraph(child, parent)
+                elif child.tag == _qn("w:tbl"):
+                    yield Table(child, parent)
+
+        for block in _iter_block_items(doc):
+            if hasattr(block, "text"):
+                # Paragraph
+                if block.text.strip():
+                    parts.append(block.text)
+            else:
+                # Table — emit each row as tab-separated cells
+                for row in block.rows:
+                    cells = [c.text.strip() for c in row.cells]
+                    row_text = "\t".join(cells)
+                    if any(cells):
+                        parts.append(row_text)
+
+        # Also grab headers and footers
+        for section in doc.sections:
+            for hf in (section.header, section.footer):
+                if hf is not None:
+                    for p in hf.paragraphs:
+                        if p.text.strip():
+                            parts.append(p.text)
+
+        return "\n".join(parts)
+
     except ImportError:
         pass
     except Exception as e:
@@ -181,6 +225,47 @@ def _read_docx(path: str) -> str:
         return f"[DOCX fallback read error: {e}]"
 
     return "[DOCX extraction requires python-docx: pip install python-docx]"
+
+
+def _read_image(path: str, gemini_api_key: str = "") -> str:
+    """
+    Extract all text and describe the contents of an image document using
+    Gemini's vision capability.  Returns a placeholder if no API key is set.
+    """
+    if not gemini_api_key:
+        return "[Image file — set GOOGLE_API_KEY to enable vision extraction]"
+
+    try:
+        import google.generativeai as genai
+        from google.generativeai.types import GenerationConfig
+
+        genai.configure(api_key=gemini_api_key)
+        uploaded = genai.upload_file(path=path)
+
+        model = genai.GenerativeModel("gemini-flash-latest")
+        response = model.generate_content(
+            [
+                uploaded,
+                "This is a legal case document image. Do the following:\n"
+                "1. Extract ALL visible text verbatim, preserving layout as much as possible.\n"
+                "2. Describe any signatures, stamps, seals, handwriting, or annotations.\n"
+                "3. Describe any tables, charts, or structured data.\n"
+                "4. Note any dates, case numbers, names, or official markings.\n"
+                "Be exhaustive — omit nothing.",
+            ],
+            generation_config=GenerationConfig(temperature=0.0, max_output_tokens=16384),
+        )
+
+        extracted = (response.text or "").strip()
+        try:
+            genai.delete_file(uploaded.name)
+        except Exception:
+            pass
+
+        return extracted or "[Image extraction returned empty result]"
+
+    except Exception as e:
+        return f"[Image extraction failed: {e}]"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -332,16 +417,6 @@ class CaseDirectoryScanner:
 
         for path_str in file_paths:
             file_path = Path(path_str)
-            if total_chars >= MAX_TOTAL_CHARS:
-                documents.append(CaseDocument(
-                    filename=file_path.name,
-                    file_path=str(file_path),
-                    doc_type=_infer_doc_type(file_path.name),
-                    text_content="",
-                    char_count=0,
-                    read_error="Skipped — total context limit reached",
-                ))
-                continue
             doc = self._read_file(file_path)
             documents.append(doc)
             total_chars += doc.char_count
@@ -359,6 +434,8 @@ class CaseDirectoryScanner:
                 text = _read_pdf(str(file_path), gemini_api_key=self._gemini_api_key)
             elif ext in (".docx", ".doc"):
                 text = _read_docx(str(file_path))
+            elif ext in IMAGE_EXTENSIONS:
+                text = _read_image(str(file_path), gemini_api_key=self._gemini_api_key)
             else:
                 text = _read_text_file(str(file_path))
 
@@ -373,9 +450,7 @@ class CaseDirectoryScanner:
                     read_error=text.strip("[]"),
                 )
 
-            truncated = len(text) > MAX_CHARS_PER_DOC
-            if truncated:
-                text = text[:MAX_CHARS_PER_DOC] + "\n[... content truncated ...]"
+            truncated = False  # No truncation
 
             return CaseDocument(
                 filename=file_path.name,
