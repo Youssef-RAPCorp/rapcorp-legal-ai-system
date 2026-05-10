@@ -249,6 +249,17 @@ class ChainExtractor:
 Your task: build a COMPLETE, EXHAUSTIVE chain of events from the evidence data below.
 This chain will be used directly in court filings — nothing can be omitted.
 
+IMPORTANT — DOCUMENT TYPES:
+Evidence may include any mix of:
+  • Audio/video recordings — extract every spoken word and on-screen action
+  • Written statements or affidavits — extract every written assertion
+  • Official documents (letters, orders, reports) — treat issuance/receipt as events
+  • Reference/research documents (search results, academic papers, news) —
+    treat their existence and content as factual evidence events
+  • Images or screenshots — describe what is depicted as a confirmed observed fact
+For ALL document types, you MUST produce at least one event per evidence item.
+No evidence item may be silently ignored.
+
 CASE SITUATION:
 {situation_description}
 
@@ -265,34 +276,43 @@ ALL EXTRACTED EVIDENCE ITEMS:
 TASK 1 — VERBATIM STATEMENTS INDEX
 ═══════════════════════════════════════════════════════════
 Extract EVERY direct quote spoken or written in the source materials.
-Include ALL statements — not just legally significant ones. A statement
-that seems minor NOW may become critical later.
+For reference documents with no direct quotes, extract the most legally
+significant sentence or heading that appears in the document verbatim.
+If truly no verbatim text exists for a document, omit it from this section —
+do NOT fabricate quotes. Return an empty array for all_statements only if
+NONE of the documents contain any extractable text whatsoever.
 
 For each statement:
-• Who said/wrote it (exact name or speaker label)
+• Who said/wrote it (exact name, institution, or "Document Author")
 • Exact words — NEVER paraphrase
-• Precise location (timestamp MM:SS, page, section)
+• Precise location (timestamp MM:SS, page X, section heading)
 • Which source file it came from
 • One sentence of surrounding context
 
 ═══════════════════════════════════════════════════════════
 TASK 2 — CHRONOLOGICAL CHAIN OF EVENTS
 ═══════════════════════════════════════════════════════════
-Reconstruct EVERY event in strict chronological order (earliest first).
+Reconstruct EVERY event in order (earliest first when dates are known;
+otherwise in logical/evidential sequence).
+
+MANDATORY: Every evidence item must generate at least one event entry.
+For documents without explicit dates, use "Date Unknown — [file name]" as
+the date_or_time and set certainty to "confirmed" if the document exists.
 
 For each event:
-• Exact date/time or relative position in the sequence
-• All people involved and their roles
-• Verbatim quote if words were spoken/written (from Task 1)
+• Date/time, or "Date Unknown" if not determinable
+• All people/institutions involved and their roles
+• Verbatim quote if words were spoken/written (from Task 1), else null
 • Exact source file and location
 • Whether confirmed (directly evidenced), inferred, or disputed
 • Specific legal significance
 
 Requirements:
-- EVERY evidence item must appear in at least one event
-- Events must establish clear cause-and-effect chains
+- EVERY evidence item must appear in at least one event — no exceptions
+- Events must establish clear cause-and-effect chains where possible
 - Do NOT omit events that seem repetitive — list each occurrence separately
-- Subtle background statements often prove intent — include all of them
+- For reference documents: the event is "Document exists / was produced / was
+  submitted" — the date it was created or filed is the event date
 
 Return ONLY valid JSON (no markdown, no preamble):
 {{
@@ -342,17 +362,28 @@ can be case-determinative. Process every piece of evidence."""
             response_mime_type="application/json",
         )
 
+        raw_response_text = ""
         try:
             response = await asyncio.to_thread(
                 model.generate_content, prompt, generation_config=gen_config
             )
-            data = json.loads(response.text)
+            raw_response_text = response.text or ""
+            data = json.loads(raw_response_text)
+        except json.JSONDecodeError as exc:
+            # LLM returned non-JSON (e.g. wrapped in markdown). Strip fences and retry.
+            cleaned = raw_response_text
+            if "```" in cleaned:
+                import re as _re
+                m = _re.search(r'```(?:json)?\s*([\s\S]*?)```', cleaned)
+                cleaned = m.group(1).strip() if m else cleaned
+            try:
+                data = json.loads(cleaned)
+            except Exception:
+                print(f"    Warning: Chain extraction JSON parse failed — {exc}")
+                data = {}
         except Exception as exc:
-            # Non-fatal: return empty chain if extraction fails
-            return ChainOfEvents(
-                narrative_summary=f"[Chain extraction could not complete: {exc}]",
-                total_events=0,
-            )
+            print(f"    Warning: Chain extraction LLM call failed — {exc}")
+            data = {}
 
         # Parse events
         events: List[ChainEvent] = []
@@ -385,6 +416,48 @@ can be case-determinative. Process every piece of evidence."""
                 context=str(raw.get("context", "")),
                 statement_type=str(raw.get("statement_type", "spoken")),
             ))
+
+        # ── Fallback synthesizer ──────────────────────────────────────────────
+        # If the LLM returned 0 events despite evidence items being present,
+        # synthesize basic events directly from the evidence item descriptions.
+        # This handles reference documents (search PDFs, images, letters) that
+        # don't have traditional "events" but are still factual evidence.
+        if not events and evidence_items:
+            print("    Note: LLM returned 0 events — synthesizing from evidence items.")
+            for i, item in enumerate(evidence_items, 1):
+                desc = getattr(item, "description", "") or ""
+                legal_sig = getattr(item, "legal_significance", "") or ""
+                source = getattr(item, "speaker_or_source", "") or "Unknown"
+                verbatim = getattr(item, "verbatim_excerpt", None)
+                ev_type = getattr(item, "evidence_type", "other") or "other"
+                location = getattr(item, "location", "") or ""
+
+                events.append(ChainEvent(
+                    sequence_number=i,
+                    date_or_time="Date Unknown",
+                    description=desc[:500] if desc else f"[Evidence item {i}]",
+                    actors=[source] if source and source != "Unknown" else [],
+                    verbatim_quote=verbatim,
+                    source_file=files_analyzed[0] if files_analyzed else "",
+                    location_in_source=str(location),
+                    event_type=ev_type if ev_type in (
+                        "statement", "action", "admission", "threat",
+                        "agreement", "refusal", "observation", "other"
+                    ) else "observation",
+                    legal_significance=legal_sig[:300] if legal_sig else "",
+                    certainty="confirmed",
+                    linked_statements=[],
+                ))
+                # If there's a verbatim excerpt, add it to statements too
+                if verbatim:
+                    statements.append(VerbatimStatement(
+                        speaker=source,
+                        statement=verbatim,
+                        timestamp_or_location=str(location),
+                        source_file=files_analyzed[0] if files_analyzed else "",
+                        context=desc[:200] if desc else "",
+                        statement_type="written",
+                    ))
 
         return ChainOfEvents(
             events=events,
