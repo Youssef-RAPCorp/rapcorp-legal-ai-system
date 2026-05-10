@@ -338,12 +338,18 @@ class LegalAIApp(ctk.CTk):
         tab.grid_columnconfigure(0, weight=1)
         tab.grid_rowconfigure(1, weight=1)
 
+        hint_row = ctk.CTkFrame(tab, fg_color="transparent")
+        hint_row.grid(row=0, column=0, padx=12, pady=(8, 4), sticky="ew")
         self._docs_hint = ctk.CTkLabel(
-            tab,
+            hint_row,
             text="Documents will appear here after the run completes.",
             text_color="gray55", anchor="w",
         )
-        self._docs_hint.grid(row=0, column=0, padx=12, pady=(8, 4), sticky="ew")
+        self._docs_hint.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(
+            hint_row, text="Load Previous Session", width=160,
+            command=self._load_previous_session,
+        ).pack(side="right")
 
         self._docs_scroll = ctk.CTkScrollableFrame(tab, label_text="")
         self._docs_scroll.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
@@ -357,9 +363,23 @@ class LegalAIApp(ctk.CTk):
 
         r = 0
 
+        # Load previous docs row
+        load_row = ctk.CTkFrame(tab, fg_color="transparent")
+        load_row.grid(row=r, column=0, sticky="ew", padx=12, pady=(12, 2)); r += 1
+        ctk.CTkLabel(load_row, text="Load existing petition:",
+                     anchor="w", font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            load_row, text="Browse Folder", width=120,
+            command=self._load_previous_session,
+        ).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(
+            load_row, text="Load File(s)", width=110,
+            command=self._load_files,
+        ).pack(side="left")
+
         # Document selector row
         sel_row = ctk.CTkFrame(tab, fg_color="transparent")
-        sel_row.grid(row=r, column=0, sticky="ew", padx=12, pady=(12, 6)); r += 1
+        sel_row.grid(row=r, column=0, sticky="ew", padx=12, pady=(4, 6)); r += 1
         sel_row.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(sel_row, text="Document:", width=90, anchor="w").grid(
             row=0, column=0)
@@ -1355,6 +1375,124 @@ class LegalAIApp(ctk.CTk):
                 subprocess.Popen([opener, path])
         else:
             messagebox.showwarning("No file", "No document selected or file not found.")
+
+    # ─── Load previous petitions ─────────────────────────────────────────
+
+    def _load_previous_session(self):
+        """Open a folder picker; load all .txt/.docx docs from that session dir."""
+        output_root = Path(__file__).parent / "output"
+        initial = str(output_root) if output_root.exists() else str(Path(__file__).parent)
+        folder = filedialog.askdirectory(
+            title="Select a previous session folder",
+            initialdir=initial,
+        )
+        if not folder:
+            return
+        self._ingest_folder(Path(folder))
+
+    def _load_files(self):
+        """Open a multi-file picker; load selected .txt/.docx files."""
+        files = filedialog.askopenfilenames(
+            title="Select document file(s)",
+            filetypes=[
+                ("Legal documents", "*.txt *.docx"),
+                ("Word documents",  "*.docx"),
+                ("Text files",      "*.txt"),
+                ("All files",       "*.*"),
+            ],
+        )
+        if not files:
+            return
+        docs = [self._file_to_doc(Path(f)) for f in files]
+        self._merge_loaded_docs(docs)
+
+    def _ingest_folder(self, folder: Path):
+        """Scan a session folder, build doc dicts, merge into the UI."""
+        SKIP = {"00_document_plan.json", "00_THINKING_LOG.txt"}
+        candidates: list[Path] = []
+        for p in sorted(folder.iterdir()):
+            if p.name in SKIP or "REVIEW_LOG" in p.name:
+                continue
+            if p.suffix in (".txt", ".docx"):
+                candidates.append(p)
+
+        if not candidates:
+            messagebox.showwarning("No documents",
+                f"No .txt or .docx documents found in:\n{folder}")
+            return
+
+        # Prefer .docx over .txt when both exist for the same stem
+        seen_stems: dict[str, Path] = {}
+        for p in candidates:
+            stem = p.stem
+            if stem not in seen_stems:
+                seen_stems[stem] = p
+            else:
+                # prefer .docx
+                if p.suffix == ".docx":
+                    seen_stems[stem] = p
+
+        docs = [self._file_to_doc(p) for p in seen_stems.values()]
+        self._merge_loaded_docs(docs)
+
+    def _file_to_doc(self, p: Path) -> dict:
+        """Build a doc dict from a file path (same shape as pipeline output)."""
+        stem = p.stem
+        # Strip leading numeric prefix like "02_" for the title
+        title = stem.lstrip("0123456789_").replace("_", " ").title()
+        if not title:
+            title = stem
+
+        # Determine twin paths
+        txt_path  = str(p.with_suffix(".txt"))  if p.suffix == ".docx" else str(p)
+        docx_path = str(p.with_suffix(".docx")) if p.suffix == ".txt"  else str(p)
+
+        # Prefer the .docx for display if it exists
+        display_path = docx_path if Path(docx_path).exists() else txt_path
+
+        return {
+            "title":     title,
+            "filename":  p.name,
+            "file_path": txt_path,
+            "docx_path": display_path,
+            "doc_type":  "loaded",
+        }
+
+    def _merge_loaded_docs(self, new_docs: list[dict]):
+        """Merge newly loaded docs into _editable_docs and refresh both tabs."""
+        existing_paths = {
+            d.get("docx_path", d.get("file_path", ""))
+            for d in getattr(self, "_editable_docs", [])
+        }
+        added = [d for d in new_docs if d.get("docx_path", d.get("file_path")) not in existing_paths]
+
+        if not added:
+            messagebox.showinfo("Already loaded", "All selected documents are already in the list.")
+            return
+
+        if not hasattr(self, "_editable_docs"):
+            self._editable_docs = []
+        if not hasattr(self, "_generated_docs"):
+            self._generated_docs = []
+
+        self._editable_docs  = self._editable_docs  + added
+        self._generated_docs = self._generated_docs + added
+
+        # Refresh Generated Documents tab
+        self._populate_docs_tab(self._generated_docs)
+
+        # Refresh Find & Edit selector
+        names = [
+            Path(d.get("docx_path", d.get("file_path", "?"))).name
+            for d in self._editable_docs
+        ]
+        self._edit_doc_menu.configure(values=names)
+        if names:
+            self._edit_doc_var.set(names[-len(added)])  # jump to first newly added
+
+        n = len(added)
+        self._log(f"\n✓ Loaded {n} document(s) from previous session.")
+        self._tabs.set("Find & Edit")
 
     # ─── AI post-processing fix ───────────────────────────────────────────
 
