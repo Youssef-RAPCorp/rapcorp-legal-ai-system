@@ -497,13 +497,26 @@ EVIDENCE SUMMARY:
 
 {self._FIDELITY_RULES}
 
+TONE AND REGISTER — READ THIS FIRST:
+- Write in a measured, professional, neutral legal register throughout
+- The introduction must state who the parties are, what is being filed, and
+  the core position — factually and plainly. No dramatic opening sentences,
+  no rhetorical flourishes, no vivid metaphors ("legal death", "stripped of rights")
+- Persuasion comes from the strength of the facts and law, not from emotional language
+- Where the strategy plan contains dramatic phrasing, restate it as a calm,
+  precise legal proposition instead
+- The tone should read like a competent attorney filing a routine motion —
+  confident and clear, not outraged or theatrical
+
 DRAFTING INSTRUCTIONS:
 - Use the standard format for a {state.value} court petition
 - Include: case caption, introduction, parties, jurisdiction/venue,
   statement of facts (organized chronologically), legal claims with
   applicable statutes and case law, prayer for relief
-- LEAD with the strongest argument identified above — it must appear in the
-  introduction and in the first substantive section, not buried at the end
+- The introduction should: identify the party filing, identify the opposing
+  petition by name and date, and state in 2-3 sentences the basis for relief
+- Present the strongest argument in the first substantive section — stated
+  as a legal proposition supported by facts, not as an emotional accusation
 - Any admissions by the opposing party must be cited as a standalone argument
   section with their own header, not folded into other paragraphs
 - Number every paragraph
@@ -792,11 +805,27 @@ EVIDENCE SUMMARY:
 
 {self._FIDELITY_RULES}
 
+TONE AND REGISTER — READ THIS FIRST:
+- Write in a measured, professional, neutral legal register throughout
+- The introduction must state who is responding, identify the petition by name
+  and date, and state the responding party's position plainly and factually
+- No dramatic opening sentences, no vivid metaphors, no rhetorical flourishes
+- Persuasion comes from precise facts and well-cited law, not from emotional language
+- Where the strategy plan contains dramatic phrasing, restate it as a calm,
+  precise legal proposition instead
+- The tone should read like a competent attorney filing a routine response —
+  confident and measured, not outraged or theatrical
+
 DRAFTING INSTRUCTIONS:
 - Written in the voice of the RESPONDING PARTY (not initiating a new lawsuit)
-- Include: case caption, introduction referencing the document being responded to,
-  numbered argument sections, prayer for relief, signature block
-- LEAD with the strongest argument and any admissions by the opposing party
+- Include: case caption, introduction referencing the petition being responded to
+  (by name and filing date), numbered argument sections, prayer for relief,
+  signature block
+- The introduction: identify the responding party, identify the opposing petition,
+  and state in 2-3 sentences the grounds for opposing or modifying the relief sought
+- Present the strongest legal argument first — as a legal proposition, not as
+  an emotional appeal
+- Any admissions by the opposing party must appear in their own argument section
 - Cite every applicable statute by its full section number
 - You MUST cite case law from the RELEVANT CASE LAW list above — include at
   least 3 cases by full name and citation, one anchoring each major argument.

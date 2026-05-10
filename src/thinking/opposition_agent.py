@@ -44,30 +44,30 @@ class OppositionAnalysis:
 
     def as_prompt_block(self) -> str:
         lines = [
-            "╔═══ OPPOSITION INTELLIGENCE REPORT ═══╗",
-            f"Threat Level: {self.threat_level}",
+            "╔═══ OPPOSITION POSITION ANALYSIS ═══╗",
+            f"Assessed Risk Level: {self.threat_level}",
             "",
-            "── THEIR ORGANIZED CLAIMS ──",
+            "── THEIR CLAIMS (organized by category) ──",
             self.organized_claims,
             "",
             "── THEIR EVIDENCE (assessed) ──",
             self.evidence_catalog,
             "",
-            "── THEIR BIGGEST STRENGTHS ──",
+            "── THEIR STRONGEST POINTS ──",
         ]
         for i, s in enumerate(self.top_strengths, 1):
             lines.append(f"  {i}. {s}")
         lines += [
             "",
-            "── THEIR MOST EXPLOITABLE WEAKNESSES ──",
+            "── VULNERABILITIES IN THEIR POSITION ──",
         ]
         for i, w in enumerate(self.top_weaknesses, 1):
             lines.append(f"  {i}. {w}")
         lines += [
             "",
-            "── ATTACK SURFACE (prioritized) ──",
+            "── AVAILABLE ARGUMENTS AND RESPONSES ──",
             self.attack_surface,
-            "╚═══════════════════════════════════════╝",
+            "╚═════════════════════════════════════╝",
         ]
         return "\n".join(lines)
 
@@ -213,7 +213,7 @@ EVIDENCE SUMMARY:
     async def _step_strength_analysis(self, mem, judge_profile):
         ctx = mem.build_context(["claim_mapping", "evidence_catalog"])
 
-        prompt = f"""You are identifying the opposing party's most dangerous strengths.
+        prompt = f"""You are a legal analyst assessing the opposing party's strongest points.
 
 PRIOR ANALYSIS:
 {ctx}
@@ -221,22 +221,21 @@ PRIOR ANALYSIS:
 JUDGE PROFILE (what THIS judge cares about most):
 {judge_profile[:1500]}
 
-Identify the opposing party's TOP 3-5 STRENGTHS — the points where they are
-on their strongest ground and where we are most at risk.
+Identify the opposing party's TOP 3-5 STRENGTHS — the points where their position
+is well-supported and where our position needs the most careful attention.
 
 For each strength:
 
 STRENGTH #<n>: <one-line title>
-  WHY IT IS STRONG: <specifically why this argument/evidence is powerful>
-  JUDGE IMPACT: <how much will THIS judge be moved by this — and why>
+  WHY IT IS STRONG: <specifically why this argument or evidence carries weight>
+  JUDGE IMPACT: <how likely THIS judge is to find this persuasive — and why>
   SEVERITY: <CRITICAL / HIGH / MEDIUM>
-  CAN WE NEUTRALIZE IT? <yes/partially/no>
-  OUR BEST COUNTER: <the single strongest response we have, if any>
-  IF WE CANNOT NEUTRALIZE: <what is the damage — does it cost us the whole case
-                             or just one argument?>
+  CAN WE ADDRESS IT? <yes/partially/no>
+  OUR BEST RESPONSE: <the most effective response we have, if any>
+  IF WE CANNOT ADDRESS IT: <what portion of the case is affected>
 
-Order from most dangerous to least dangerous.
-Be honest — if a strength is truly fatal without a counter, say so."""
+Order from most significant to least significant.
+Be precise and candid — note clearly where our response is limited."""
 
         result = await self._llm.generate(prompt=prompt, task="legal_synthesis")
         mem.add("strength_analysis", (result.get("text") or "").strip(),
@@ -278,9 +277,9 @@ COMPOUND ATTACKS: Are there any two weaknesses that, combined, create a
     async def _step_attack_surface(self, mem, case_law_context, judge_profile):
         ctx = mem.build_context()  # full 4-step chain
 
-        prompt = f"""You are mapping the complete attack surface against the opposing party.
+        prompt = f"""You are a legal analyst mapping the arguments and challenges available to our side.
 
-FULL OPPOSITION INTELLIGENCE:
+FULL OPPOSITION ANALYSIS:
 {ctx}
 
 RELEVANT CASE LAW:
@@ -289,39 +288,39 @@ RELEVANT CASE LAW:
 JUDGE PROFILE:
 {judge_profile[:1000]}
 
-Design a prioritized attack plan. This is the offensive strategy — what WE
-do to them, not what they might do to us.
+Based on the weaknesses identified in the opposing party's position, outline the
+available legal arguments and procedural options we can raise.
 
-PRIMARY STRIKE (the single most devastating attack):
-  ATTACK: <what it is>
-  WHY IT IS THE BEST ATTACK: <specifically why this is the highest-value target>
-  EXECUTION: <exactly how we make this argument in the document/at hearing>
-  CASE LAW SUPPORT: <statute or case that supports this attack>
-  EXPECTED RESPONSE: <how they will try to counter this>
-  OUR COUNTER-COUNTER: <how we shut down their response>
+PRIMARY ARGUMENT (the single strongest position we can advance):
+  ARGUMENT: <what it is>
+  WHY IT IS THE STRONGEST: <specifically why this is the most persuasive position>
+  HOW TO PRESENT IT: <how we frame this argument in our documents or at hearing>
+  LEGAL AUTHORITY: <statute or case that supports this>
+  ANTICIPATED RESPONSE: <how the other side is likely to respond>
+  OUR REPLY: <how we address their anticipated response>
 
-SECONDARY ATTACKS (3-4 supporting attacks, in priority order):
-  ATTACK #1: <title>
-    TARGET: <which claim or evidence of theirs does this destroy>
-    EXECUTION: <how>
+SUPPORTING ARGUMENTS (3-4 additional arguments, in priority order):
+  ARGUMENT #1: <title>
+    TARGETS: <which of their claims or evidence this addresses>
+    HOW TO PRESENT: <how>
     TIMING: <when in proceedings>
 
-  ATTACK #2: <title>
+  ARGUMENT #2: <title>
     [same format]
 
-  ATTACK #3: <title>
+  ARGUMENT #3: <title>
     [same format]
 
-PROCEDURAL ATTACKS (motions, evidentiary challenges, etc.):
-  <list specific motions, objections, or procedural moves we should file/make>
+PROCEDURAL OPTIONS (motions, evidentiary objections, etc.):
+  <list specific motions or procedural steps we should consider filing>
 
-CREDIBILITY ATTACKS (on their witnesses or experts):
-  <if applicable: specific impeachment points for each key opposing witness>
+WITNESS/EXPERT CREDIBILITY CONSIDERATIONS:
+  <if applicable: factual bases for questioning the reliability of their key witnesses or experts>
 
-ATTACK SEQUENCING:
-  <In what order do we deploy these attacks across the lifecycle of the case?
-   Opening → Motion Phase → Discovery → Trial/Hearing → Closing.
-   Note: even if this is pre-trial document work, sequence for a full proceeding.>"""
+ARGUMENT SEQUENCING:
+  <Recommended order for presenting these arguments across the case lifecycle:
+   Opening → Motion Phase → Discovery → Hearing/Trial → Closing.
+   Note: even if this is pre-trial document work, plan for a full proceeding.>"""
 
         result = await self._llm.generate(prompt=prompt, task="legal_synthesis")
         mem.add("attack_surface", (result.get("text") or "").strip(),

@@ -361,26 +361,26 @@ Be specific. Reference actual documents, dates, and facts from the evidence summ
         ctx = mem.build_context(["case_framing", "judge_profile", "theory_selection",
                                   "evidence_mapping", "opposition_analysis"])
 
-        prompt = f"""You are now playing the role of the most dangerous opposing counsel.
+        prompt = f"""You are a legal analyst conducting an objective review of our case position.
 
-FULL REASONING CHAIN (our strategy + complete opposition intelligence):
+FULL REASONING CHAIN (our strategy + complete opposition analysis):
 {ctx}
 
 ORIGINAL SITUATION:
 {situation[:1000]}
 
-Given the opposition's strengths identified above, attack our case mercilessly.
-For each weakness you find:
-  WEAKNESS: <what it is>
-  SEVERITY: <critical / significant / minor>
-  HOW THEY WILL USE IT: <exactly how opposing counsel will argue this in court>
-  WHICH OPPOSITION STRENGTH POWERS THIS: <connect to their strengths from the
-    opposition analysis — are they exploiting one of their strong points against us?>
-  WHERE IT HURTS: <which of our theories does this attack?>
+Identify the vulnerabilities in our position that the other side is likely to raise.
+For each vulnerability:
+  VULNERABILITY: <what it is>
+  SIGNIFICANCE: <critical / significant / minor>
+  HOW THEY WILL LIKELY RAISE IT: <how opposing counsel will present this at hearing>
+  WHICH OPPOSITION STRENGTH RELATES: <connect to their strengths from the
+    opposition analysis where applicable>
+  WHICH OF OUR ARGUMENTS IS AFFECTED: <which legal theory this puts at risk>
 
-Find at minimum 5 weaknesses. Be brutal and honest.
-Focus on what the JUDGE will actually be concerned about, not just technical legal points.
-Pay special attention to weaknesses that align with the opposition's identified strengths."""
+Identify at minimum 5 vulnerabilities. Be thorough and objective.
+Focus on what the judge will actually weigh, not just technical legal points.
+Pay particular attention to vulnerabilities that align with the other side's strengths."""
 
         result = await self._llm.generate(prompt=prompt, task="legal_synthesis")
         mem.add("weakness_scan", (result.get("text") or "").strip(),
@@ -428,7 +428,7 @@ Be specific to what THIS judge cares about, not generic legal advice."""
         ctx = mem.build_context(["case_framing", "judge_profile", "theory_selection",
                                   "evidence_mapping", "attack_preemption"])
 
-        prompt = f"""Design the narrative arc — the story the judge will remember.
+        prompt = f"""Design the factual narrative — the coherent account of events the judge will follow.
 
 FULL REASONING CHAIN:
 {ctx}
@@ -436,22 +436,20 @@ FULL REASONING CHAIN:
 SITUATION:
 {situation[:800]}
 
-Write the narrative arc for this case:
+Write a clear, measured narrative for this case. Tone must be professional and
+restrained — factual assertions, not rhetoric or dramatic framing.
 
-OPENING HOOK (2-3 sentences that immediately establish the justice of our position):
-<the hook>
+CASE OVERVIEW (2-3 sentences, neutral and factual, suitable for an introduction):
+<a straightforward statement of what this proceeding is about and what is being sought>
 
-THE STORY (structured as: context → inciting event → escalation → injustice → relief sought):
-<the narrative, 200-300 words, written in plain language>
+THE FACTS IN ORDER (context → key event → what followed → what is at stake):
+<the factual account, 200-300 words, written in plain professional language>
 
-THE EMOTIONAL CORE (what human value is at stake — autonomy, fairness, protection, trust):
-<one sentence>
+THE CORE LEGAL PRINCIPLE (the legal value at stake — due process, autonomy, proportionality):
+<one sentence, stated as a legal proposition, not an emotional appeal>
 
-THE LOGICAL CORE (what legal principle, if vindicated here, makes society better):
-<one sentence>
-
-CLOSING IMAGE (the last mental image the judge should have):
-<one vivid, specific, factually grounded image from the record>
+THE STRONGEST FACTUAL POINT (the single fact most likely to persuade the judge):
+<one specific, well-documented fact from the record — stated plainly>
 
 This narrative must be 100% grounded in the actual facts of the case.
 Every statement must be supportable by evidence in the record."""
