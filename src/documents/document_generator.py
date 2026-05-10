@@ -452,6 +452,7 @@ Order documents by priority (1 = must file first)."""
         self, doc_info: Dict, situation: str, analysis: EvidenceAnalysisResult,
         clarifications: Dict[str, str], plan: Dict, state: USState,
         case_law_context: str = "",
+        strategy_plan: str = "",
     ) -> str:
         clarification_block = (
             "\n".join(f"Q: {q}\nA: {a}" for q, a in clarifications.items())
@@ -461,6 +462,7 @@ Order documents by priority (1 = must file first)."""
             f"\n\nRELEVANT CASE LAW (cite these where applicable in your legal claims):\n"
             f"{case_law_context[:4000]}"
         ) if case_law_context else ""
+        strategy_block = f"\n\n{strategy_plan[:2500]}" if strategy_plan else ""
 
         strongest = plan.get("strongest_argument", "")
         admissions = plan.get("opposing_admissions", [])
@@ -491,7 +493,7 @@ PETITIONER CLARIFICATIONS:
 
 EVIDENCE SUMMARY:
 {self._evidence_summary_for_prompt(analysis)}
-{self._chain_block_for_prompt(analysis)}{case_law_block}{strength_block}{statutes_block}
+{self._chain_block_for_prompt(analysis)}{case_law_block}{strength_block}{statutes_block}{strategy_block}
 
 {self._FIDELITY_RULES}
 
@@ -524,6 +526,7 @@ Write the complete petition document now:"""
         self, doc_info: Dict, situation: str, analysis: EvidenceAnalysisResult,
         clarifications: Dict[str, str], plan: Dict, state: USState,
         case_law_context: str = "",
+        strategy_plan: str = "",
     ) -> str:
         clarification_block = (
             "\n".join(f"Q: {q}\nA: {a}" for q, a in clarifications.items())
@@ -533,6 +536,9 @@ Write the complete petition document now:"""
             f"\n\nRELEVANT CASE LAW (reference where it supports specific facts or legal significance):\n"
             f"{case_law_context[:3000]}"
         ) if case_law_context else ""
+        strategy_block = (
+            f"\n\n{strategy_plan[:2000]}"
+        ) if strategy_plan else ""
 
         prompt = f"""{self._caption_block(plan, state, doc_info['title'])}
 Draft a sworn Affidavit of Facts in Support of the {plan['petition_type']}
@@ -546,7 +552,7 @@ PETITIONER CLARIFICATIONS:
 
 EVIDENCE ITEMS TO INCORPORATE:
 {self._evidence_summary_for_prompt(analysis)}
-{self._chain_block_for_prompt(analysis)}{case_law_block}
+{self._chain_block_for_prompt(analysis)}{case_law_block}{strategy_block}
 
 {self._FIDELITY_RULES}
 
@@ -554,6 +560,19 @@ DRAFTING INSTRUCTIONS:
 - Written in FIRST PERSON from the petitioner's perspective ("I, [Petitioner Name], ...")
 - Include: jurat (I swear/affirm under penalty of perjury...), statement of
   personal knowledge, numbered factual paragraphs, signature block, notary block
+- LOGICAL NARRATIVE ORDER & SMOOTH FLOW: Arrange numbered paragraphs so the
+  affidavit reads as one coherent, persuasive story.  Lead with the facts that
+  immediately establish credibility and context, build through the key events
+  in a way that makes the outcome feel inevitable, and close with the facts that
+  most powerfully demand the relief sought.
+  Within any continuous sequence of causally-linked events, preserve chronology
+  so the reader can follow the chain — but group related events together even if
+  they are not strictly the earliest ones in the record, as long as the grouping
+  serves the narrative logic.
+  Every paragraph must flow naturally from the one before it.  Where the subject
+  changes, open the paragraph with a short orienting phrase ("Following that
+  meeting...", "Independently of the foregoing...", "In direct response...").
+  Never drop the reader into an unrelated fact without a transitional bridge.
 - Each paragraph states ONE specific fact with its exact date/time/location
 - Reference supporting evidence inline (e.g. "as shown in Exhibit A at timestamp 02:14")
 - Leave [BRACKETS] for unknown information (dates, case numbers, etc.)
@@ -561,7 +580,7 @@ DRAFTING INSTRUCTIONS:
 - Plain text only — NO markdown, NO asterisks, NO pound signs for headings.
   Use Roman numerals or letters for sections, numbered paragraphs throughout.
 
-Write the complete affidavit now:"""
+Write the complete affidavit now. Double-check chronological order before finalising:"""
 
         return await self._generate_text(prompt, max_tokens=16384)
 
@@ -727,6 +746,7 @@ Write the complete proposed order now:"""
         self, doc_info: Dict, situation: str, analysis: EvidenceAnalysisResult,
         clarifications: Dict[str, str], plan: Dict, state: USState,
         case_law_context: str = "",
+        strategy_plan: str = "",
     ) -> str:
         clarification_block = (
             "\n".join(f"Q: {q}\nA: {a}" for q, a in clarifications.items())
@@ -735,6 +755,7 @@ Write the complete proposed order now:"""
         case_law_block = (
             f"\n\nRELEVANT CASE LAW (cite where applicable):\n{case_law_context[:3000]}"
         ) if case_law_context else ""
+        strategy_block = f"\n\n{strategy_plan[:2500]}" if strategy_plan else ""
 
         key_statutes = plan.get("key_statutes", [])
         statutes_block = ""
@@ -769,7 +790,7 @@ CLARIFICATIONS:
 
 EVIDENCE SUMMARY:
 {self._evidence_summary_for_prompt(analysis)}
-{self._chain_block_for_prompt(analysis)}{case_law_block}{statutes_block}{strength_block}
+{self._chain_block_for_prompt(analysis)}{case_law_block}{statutes_block}{strength_block}{strategy_block}
 
 {self._FIDELITY_RULES}
 
@@ -922,6 +943,7 @@ Signature: _______________________________ Date: _______________
         case_law_context: str = "",
         doc_mode: str = "petition",
         case_documents_context: str = "",
+        strategy_plan: str = "",
     ) -> List[GeneratedDocument]:
         """
         Generate the complete package of documents needed to file the petition.
@@ -968,11 +990,11 @@ Signature: _______________________________ Date: _______________
             content = None
 
             if doc_type == "petition" and doc_mode != "reply":
-                content = await self._gen_petition(doc_info, situation, analysis, clarifications, plan, state, case_law_context)
+                content = await self._gen_petition(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan)
             elif doc_type == "petition" and doc_mode == "reply":
-                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context)
+                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan)
             elif doc_type == "affidavit":
-                content = await self._gen_affidavit(doc_info, situation, analysis, clarifications, plan, state, case_law_context)
+                content = await self._gen_affidavit(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan)
             elif doc_type == "exhibit_index":
                 content = await self._gen_exhibit_index(doc_info, situation, analysis, plan, state)
             elif doc_type == "certificate_of_service":
@@ -983,9 +1005,9 @@ Signature: _______________________________ Date: _______________
                 content = self._gen_cover_sheet(plan, situation, state)
             elif doc_type in ("objection", "motion_to_terminate", "reply_brief",
                               "response", "motion", "supplemental_pleading", "notice"):
-                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context)
+                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan)
             else:
-                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context)
+                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan)
 
             if content:
                 # Iterative review for AI-generated substantive documents

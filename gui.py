@@ -310,6 +310,8 @@ class LegalAIApp(ctk.CTk):
         self._build_tab_documents()
         self._build_tab_edit()
         self._build_tab_research()
+        self._build_tab_simulation()
+        self._build_tab_live()
 
         # ── Progress bar (shown during runs) ─────────────────────────────
         self._progress_bar = ctk.CTkProgressBar(main, mode="indeterminate", height=6)
@@ -551,6 +553,141 @@ class LegalAIApp(ctk.CTk):
         self._research_result_box.grid(
             row=r, column=0, padx=12, pady=(0, 12), sticky="nsew")
 
+    # ── Tab: Simulation ───────────────────────────────────────────────────
+
+    def _build_tab_simulation(self):
+        tab = self._tabs.add("Simulation")
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(4, weight=1)
+
+        r = 0
+
+        ctk.CTkLabel(tab, text="Court Simulation",
+                     font=ctk.CTkFont(size=13, weight="bold"), anchor="w").grid(
+            row=r, column=0, padx=14, pady=(12, 2), sticky="ew"); r += 1
+
+        ctk.CTkLabel(
+            tab,
+            text="Run a full AI moot court using your current case. "
+                 "Requires a completed analysis run first.",
+            text_color="gray55", anchor="w", wraplength=700, justify="left",
+            font=ctk.CTkFont(size=11),
+        ).grid(row=r, column=0, padx=14, sticky="ew"); r += 1
+
+        opts = ctk.CTkFrame(tab, fg_color="transparent")
+        opts.grid(row=r, column=0, padx=12, pady=(8, 6), sticky="ew"); r += 1
+        opts.grid_columnconfigure((0, 1), weight=1)
+
+        ctk.CTkLabel(opts, text="Trial type:", anchor="w",
+                     font=ctk.CTkFont(size=11)).grid(row=0, column=0, sticky="w")
+        self._sim_type_var = ctk.StringVar(value="bench")
+        ctk.CTkOptionMenu(opts, variable=self._sim_type_var,
+                          values=["bench", "jury"],
+                          dynamic_resizing=False).grid(row=1, column=0,
+                                                       padx=(0, 8), sticky="ew")
+
+        ctk.CTkLabel(opts, text="Opposing arguments (optional):", anchor="w",
+                     font=ctk.CTkFont(size=11)).grid(row=0, column=1, sticky="w")
+        self._sim_opp_entry = ctk.CTkEntry(
+            opts, placeholder_text="Paste opposing party's known arguments…")
+        self._sim_opp_entry.grid(row=1, column=1, sticky="ew")
+
+        self._sim_btn = ctk.CTkButton(
+            tab, text="▶  Run Court Simulation",
+            command=self._run_simulation,
+            height=40, font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#8a3020", hover_color="#5a1a10",
+        )
+        self._sim_btn.grid(row=r, column=0, padx=12, pady=(4, 2), sticky="ew"); r += 1
+
+        self._sim_status = ctk.CTkLabel(
+            tab, text="", text_color="gray55", anchor="w",
+            font=ctk.CTkFont(size=11))
+        self._sim_status.grid(row=r, column=0, padx=16, pady=(2, 4), sticky="ew"); r += 1
+
+        tab.grid_rowconfigure(r, weight=1)
+        self._sim_result_box = ctk.CTkTextbox(
+            tab, state="disabled",
+            font=ctk.CTkFont(family="Courier New", size=11), wrap="word",
+        )
+        self._sim_result_box.grid(row=r, column=0, padx=12, pady=(0, 12), sticky="nsew")
+
+    # ── Tab: Live Lawyer ──────────────────────────────────────────────────
+
+    def _build_tab_live(self):
+        tab = self._tabs.add("Live Lawyer")
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(5, weight=1)
+
+        r = 0
+
+        ctk.CTkLabel(tab, text="Live Lawyer — Real-Time Device Server",
+                     font=ctk.CTkFont(size=13, weight="bold"), anchor="w").grid(
+            row=r, column=0, padx=14, pady=(12, 2), sticky="ew"); r += 1
+
+        ctk.CTkLabel(
+            tab,
+            text="Connects any device (phone, tablet) to receive real-time AI advice "
+                 "and audio alerts. Your device opens: ws://YOUR_IP:PORT",
+            text_color="gray55", anchor="w", wraplength=700, justify="left",
+            font=ctk.CTkFont(size=11),
+        ).grid(row=r, column=0, padx=14, sticky="ew"); r += 1
+
+        opts = ctk.CTkFrame(tab, fg_color="transparent")
+        opts.grid(row=r, column=0, padx=12, pady=(8, 6), sticky="ew"); r += 1
+        opts.grid_columnconfigure((0, 1, 2), weight=1)
+
+        ctk.CTkLabel(opts, text="Port:", anchor="w",
+                     font=ctk.CTkFont(size=11)).grid(row=0, column=0, sticky="w")
+        self._live_port_var = ctk.StringVar(value="8765")
+        ctk.CTkEntry(opts, textvariable=self._live_port_var, width=80).grid(
+            row=1, column=0, padx=(0, 8), sticky="ew")
+
+        ctk.CTkLabel(opts, text="Audio monitor:", anchor="w",
+                     font=ctk.CTkFont(size=11)).grid(row=0, column=1, sticky="w")
+        self._live_audio_var = ctk.BooleanVar(value=False)
+        ctk.CTkSwitch(opts, text="Always-on recording",
+                      variable=self._live_audio_var).grid(
+            row=1, column=1, padx=(0, 8), sticky="w")
+
+        ctk.CTkLabel(opts, text="Chunk (seconds):", anchor="w",
+                     font=ctk.CTkFont(size=11)).grid(row=0, column=2, sticky="w")
+        self._live_chunk_var = ctk.StringVar(value="5")
+        ctk.CTkEntry(opts, textvariable=self._live_chunk_var, width=60).grid(
+            row=1, column=2, sticky="ew")
+
+        live_btns = ctk.CTkFrame(tab, fg_color="transparent")
+        live_btns.grid(row=r, column=0, padx=12, pady=(4, 2), sticky="ew"); r += 1
+
+        self._live_toggle_btn = ctk.CTkButton(
+            live_btns, text="Start Server",
+            command=self._toggle_live_server,
+            height=40, font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#1a7a3a", hover_color="#104a22",
+        )
+        self._live_toggle_btn.pack(side="left")
+
+        self._live_status = ctk.CTkLabel(
+            tab, text="Server not running.", text_color="gray55", anchor="w",
+            font=ctk.CTkFont(size=11))
+        self._live_status.grid(row=r, column=0, padx=16, pady=(2, 4), sticky="ew"); r += 1
+
+        ctk.CTkLabel(tab, text="Server log & device messages:",
+                     font=ctk.CTkFont(size=12, weight="bold"), anchor="w").grid(
+            row=r, column=0, padx=14, pady=(2, 2), sticky="ew"); r += 1
+
+        tab.grid_rowconfigure(r, weight=1)
+        self._live_log_box = ctk.CTkTextbox(
+            tab, state="disabled",
+            font=ctk.CTkFont(family="Courier New", size=11), wrap="word",
+        )
+        self._live_log_box.grid(row=r, column=0, padx=12, pady=(0, 12), sticky="nsew")
+
+        # Internal state
+        self._live_server = None
+        self._live_loop: asyncio.AbstractEventLoop | None = None
+        self._live_running = False
+
     # ─── File upload helpers ──────────────────────────────────────────────
 
     def _upload_case(self):
@@ -630,6 +767,10 @@ class LegalAIApp(ctk.CTk):
         state_str = self._state_var.get()
         doc_mode  = "reply" if self._doc_mode_var.get() == "Reply / Response" else "petition"
 
+        # Store for simulation and live lawyer tabs
+        self._last_situation = situation
+        self._last_state     = state_str
+
         self._running = True
         self._run_btn.configure(state="disabled", text="Running…")
         self._progress_bar.start()
@@ -685,8 +826,21 @@ class LegalAIApp(ctk.CTk):
         )
         analysis = result["_result_obj"]
 
+        self._last_analysis = analysis
+
         # Phase 2 — Document generation + iterative review
-        docs = await system.generate_petition_documents(
+        # The orchestrator internally runs the thinking engine and builds case_law_context;
+        # capture them on self so the Simulation / Live Lawyer tabs can use them.
+        _orig_gen = system.generate_petition_documents
+        async def _intercepted_gen(*args, **kwargs):
+            # Monkey-patch to capture computed context after the thinking engine runs
+            docs_out = await _orig_gen(*args, **kwargs)
+            # Retrieve stored values from the orchestrator's last run
+            self._last_case_law     = getattr(system, "_last_case_law_context", "")
+            self._last_strategy_plan = getattr(system, "_last_strategy_plan_block", "")
+            return docs_out
+
+        docs = await _intercepted_gen(
             situation=situation,
             analysis=analysis,
             clarifications={},
@@ -748,6 +902,196 @@ class LegalAIApp(ctk.CTk):
         self._run_btn.configure(state="normal", text="▶  Run Analysis & Generate Docs")
         self._log(f"\n✗ Error: {msg}")
         messagebox.showerror("Pipeline error", msg[:400])
+
+    # ─── Simulation tab handlers ──────────────────────────────────────────
+
+    def _run_simulation(self):
+        if not hasattr(self, "_system") or not self._system:
+            messagebox.showwarning("No case loaded",
+                "Run an analysis first so the simulation has case context.")
+            return
+        if not hasattr(self, "_last_situation") or not self._last_situation:
+            messagebox.showwarning("No situation",
+                "Run an analysis first.")
+            return
+
+        self._sim_btn.configure(state="disabled", text="Simulating…")
+        self._sim_status.configure(text="Running court simulation — this may take 2–4 minutes…")
+        self._sim_result_box.configure(state="normal")
+        self._sim_result_box.delete("0.0", "end")
+        self._sim_result_box.insert("0.0", "Simulation running…\n")
+        self._sim_result_box.configure(state="disabled")
+
+        trial_type   = self._sim_type_var.get()
+        opp_args     = self._sim_opp_entry.get().strip()
+        situation    = self._last_situation
+        analysis     = getattr(self, "_last_analysis", None)
+        case_law_ctx = getattr(self, "_last_case_law", "")
+        strategy_blk = getattr(self, "_last_strategy_plan", "")
+        system       = self._system
+
+        def _thread():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(
+                    self._run_simulation_async(
+                        system, situation, strategy_blk,
+                        case_law_ctx, trial_type, opp_args,
+                    )
+                )
+                self.after(0, lambda: self._on_sim_complete(result))
+            except Exception as exc:
+                err = f"Simulation error: {exc}\n{traceback.format_exc()}"
+                self.after(0, lambda: self._on_sim_error(err))
+            finally:
+                loop.close()
+
+        threading.Thread(target=_thread, daemon=True).start()
+
+    async def _run_simulation_async(self, system, situation, strategy_plan,
+                                    case_law_ctx, trial_type, opp_args):
+        from src.simulation.court_simulator import CourtSimulator
+        from configs.config import USState
+
+        state_str = getattr(self, "_last_state", "FEDERAL")
+        try:
+            state = USState(state_str)
+        except ValueError:
+            state = USState.FEDERAL
+
+        simulator = CourtSimulator(system.llm)
+        result = await simulator.simulate(
+            situation=situation,
+            our_strategy=strategy_plan or "No strategy plan available.",
+            case_law_context=case_law_ctx,
+            state=state,
+            trial_type=trial_type,
+            opposing_known_arguments=opp_args,
+        )
+        return result
+
+    def _on_sim_complete(self, result):
+        self._sim_btn.configure(state="normal", text="▶  Run Court Simulation")
+        verdict_emoji = "✓" if "PETITIONER" in result.verdict else "✗"
+        self._sim_status.configure(
+            text=f"{verdict_emoji} Verdict: {result.verdict} | "
+                 f"Win probability: {result.our_confidence * 100:.0f}% | "
+                 f"Duration: {result.duration_seconds:.0f}s"
+        )
+        full_text = result.transcript_text()
+        self._sim_result_box.configure(state="normal")
+        self._sim_result_box.delete("0.0", "end")
+        self._sim_result_box.insert("0.0", full_text)
+        self._sim_result_box.configure(state="disabled")
+
+    def _on_sim_error(self, msg: str):
+        self._sim_btn.configure(state="normal", text="▶  Run Court Simulation")
+        self._sim_status.configure(text=f"Error: {msg[:120]}")
+        messagebox.showerror("Simulation error", msg[:400])
+
+    # ─── Live Lawyer tab handlers ─────────────────────────────────────────
+
+    def _toggle_live_server(self):
+        if self._live_running:
+            self._stop_live_server()
+        else:
+            self._start_live_server()
+
+    def _start_live_server(self):
+        try:
+            port = int(self._live_port_var.get())
+        except ValueError:
+            port = 8765
+        enable_audio = self._live_audio_var.get()
+        chunk_seconds = int(self._live_chunk_var.get() or "5")
+
+        system = getattr(self, "_system", None)
+        config = create_config()
+
+        def _thread():
+            from src.live.live_lawyer import LiveLawyerServer
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self._live_loop = loop
+
+            server = LiveLawyerServer(config)
+            if system and system.llm:
+                server.set_llm_client(system.llm)
+            strategy_blk = getattr(self, "_last_strategy_plan", "")
+            case_law_ctx = getattr(self, "_last_case_law", "")
+            server.set_case_context(strategy_blk, case_law_ctx)
+            self._live_server = server
+
+            # Redirect server output to the live log box
+            import sys as _sys
+            _sys.stdout = _LogRedirect(self._live_log_q)
+
+            try:
+                loop.run_until_complete(
+                    server.start(port=port, enable_audio=enable_audio,
+                                 audio_chunk_seconds=chunk_seconds)
+                )
+                loop.run_forever()
+            except Exception as exc:
+                self.after(0, lambda: self._live_log(f"Server error: {exc}"))
+            finally:
+                _sys.stdout = self._old_stdout if hasattr(self, "_old_stdout") else _sys.__stdout__
+                loop.close()
+
+        self._live_log_q: queue.Queue = queue.Queue()
+        threading.Thread(target=_thread, daemon=True).start()
+        self._live_running = True
+        self._live_toggle_btn.configure(text="Stop Server", fg_color="#8a3020",
+                                         hover_color="#5a1a10")
+        import socket as _sock
+        try:
+            s = _sock.socket(_sock.AF_INET, _sock.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            ip = "localhost"
+        self._live_status.configure(
+            text=f"Server running on ws://{ip}:{port} — connect any device to this address."
+        )
+        self._live_log(f"Live Lawyer server started on ws://{ip}:{port}")
+        self._live_log(f"Audio monitor: {'ON' if enable_audio else 'OFF'}")
+        self._poll_live_log()
+
+    def _stop_live_server(self):
+        if self._live_server and self._live_loop:
+            asyncio.run_coroutine_threadsafe(
+                self._live_server.stop(), self._live_loop
+            )
+            self._live_loop.call_soon_threadsafe(self._live_loop.stop)
+        self._live_running = False
+        self._live_server  = None
+        self._live_loop    = None
+        self._live_toggle_btn.configure(text="Start Server", fg_color="#1a7a3a",
+                                         hover_color="#104a22")
+        self._live_status.configure(text="Server stopped.")
+        self._live_log("Live Lawyer server stopped.")
+
+    def _live_log(self, text: str):
+        self._live_log_box.configure(state="normal")
+        self._live_log_box.insert("end", text + "\n")
+        self._live_log_box.see("end")
+        self._live_log_box.configure(state="disabled")
+
+    def _poll_live_log(self):
+        """Drain the live server's stdout queue into the live log box."""
+        if not self._live_running:
+            return
+        try:
+            while True:
+                line = self._live_log_q.get_nowait()
+                if isinstance(line, tuple):
+                    line = line[1] if len(line) > 1 else str(line)
+                self._live_log(str(line))
+        except queue.Empty:
+            pass
+        self.after(500, self._poll_live_log)
 
     # ─── Generated Documents tab ──────────────────────────────────────────
 

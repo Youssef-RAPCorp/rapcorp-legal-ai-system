@@ -35,6 +35,7 @@ from src.swarm.knowledge_swarm import LegalKnowledgeSwarm
 from src.reasoning.reasoning_engine import LegalReasoningEngine
 from src.evidence.evidence_analyzer import EvidenceAnalyzer, EvidenceAnalysisResult
 from src.documents.document_generator import DocumentGenerator, GeneratedDocument
+from src.thinking.legal_thinking_engine import LegalThinkingEngine
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -900,6 +901,32 @@ Return ONLY valid JSON:
             except Exception as e:
                 print(f"    Case document load failed (non-fatal): {e}")
 
+        # ── Thinking engine: attack surface + self-refine strategy plan ─────
+        strategy_plan_block = ""
+        if self.llm:
+            print("  Running thinking engine (attack surface + argument refinement)...")
+            try:
+                from src.evidence.evidence_analyzer import EvidenceAnalysisResult
+                engine = LegalThinkingEngine(self.llm)
+                evidence_summary = "\n".join(analysis.key_findings) if analysis.key_findings else analysis.summary
+                strategy_plan = await engine.think(
+                    situation=situation,
+                    evidence_summary=evidence_summary,
+                    case_law_context=case_law_context,
+                    case_documents_context=case_documents_context,
+                    state=state.value,
+                    doc_mode=doc_mode,
+                )
+                strategy_plan_block = strategy_plan.as_prompt_block()
+                print(f"    Strategy score: {strategy_plan.argument_score:.1f}/10 "
+                      f"({strategy_plan.refinement_cycles} cycles)")
+            except Exception as e:
+                print(f"    Thinking engine failed (non-fatal): {e}")
+
+        # Expose to GUI for simulation / live lawyer tabs
+        self._last_case_law_context  = case_law_context
+        self._last_strategy_plan_block = strategy_plan_block
+
         docs: List[GeneratedDocument] = await self.document_generator.generate_petition_package(
             situation=situation,
             analysis=analysis,
@@ -909,6 +936,7 @@ Return ONLY valid JSON:
             case_law_context=case_law_context,
             doc_mode=doc_mode,
             case_documents_context=case_documents_context,
+            strategy_plan=strategy_plan_block,
         )
 
         return [
