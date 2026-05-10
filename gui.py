@@ -1539,18 +1539,13 @@ class LegalAIApp(ctk.CTk):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
+            from src.documents.docx_writer import ai_fix_docx
             for path in targets:
                 if not path or not Path(path).exists():
                     self._log_q.put(("log", f"  Skipping missing file: {path}"))
                     continue
-                self._log_q.put(("log", f"  Fixing: {Path(path).name}"))
-                ext = Path(path).suffix.lower()
-                if ext == ".docx":
-                    from src.documents.docx_writer import ai_fix_docx
-                    loop.run_until_complete(ai_fix_docx(config, path, instruction))
-                else:
-                    from main import _ai_edit_document
-                    loop.run_until_complete(_ai_edit_document(config, path, instruction))
+                self._log_q.put(("log", f"  Analyzing structure: {Path(path).name}…"))
+                loop.run_until_complete(ai_fix_docx(config, path, instruction))
             self._log_q.put(("log", "  AI fix complete."))
         except Exception as exc:
             self._log_q.put(("log", f"  AI fix error: {exc}\n{traceback.format_exc()}"))

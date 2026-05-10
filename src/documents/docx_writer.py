@@ -288,15 +288,17 @@ def count_occurrences(file_path: str, find_text: str) -> int:
 
 async def ai_fix_docx(config, file_path: str, instruction: str) -> None:
     """
-    Apply an AI-generated targeted edit to a .docx file, in-place.
+    Apply a seamlessly integrated AI edit to a legal document.
 
-    Extracts the full text, sends it to Gemini Pro with the instruction,
-    then rebuilds the .docx from the revised text.
+    Two-stage pipeline:
+      Stage 1 (Flash, fast) — analyzes document structure: identifies the
+        document type, the exact section/paragraph the change belongs in,
+        the paragraph numbering scheme, and any renumbering needed.
+      Stage 2 (Pro, full rewrite) — executes the edit using the Stage 1
+        plan so the change fits perfectly in context, tone, and numbering.
 
-    Args:
-        config:      LegalAIConfig (for API key and model name).
-        file_path:   Path to the .docx file to edit.
-        instruction: Natural-language description of the change to make.
+    Works on both .docx and .txt.  When a .txt source exists for a .docx,
+    edits the .txt and reconverts to preserve .docx formatting fidelity.
     """
     try:
         import google.generativeai as genai
@@ -305,50 +307,131 @@ async def ai_fix_docx(config, file_path: str, instruction: str) -> None:
         print("  google-generativeai not available — AI fix skipped.")
         return
 
-    # Extract full text from the docx
-    if DOCX_AVAILABLE and file_path.endswith(".docx"):
+    p = Path(file_path)
+
+    # Prefer the .txt source when editing a .docx — editing txt then reconverting
+    # is more reliable than round-tripping through docx paragraph extraction.
+    txt_source = p.with_suffix(".txt")
+    if p.suffix.lower() == ".docx" and txt_source.exists():
+        content = txt_source.read_text(encoding="utf-8", errors="replace")
+        write_txt = str(txt_source)
+        write_docx = file_path
+    elif p.suffix.lower() == ".docx" and DOCX_AVAILABLE:
         doc = Document(file_path)
-        content = "\n".join(p.text for p in _iter_paragraphs(doc))
+        content = "\n".join(p2.text for p2 in _iter_paragraphs(doc))
+        write_txt = None
+        write_docx = file_path
     else:
-        content = Path(file_path).read_text(encoding="utf-8", errors="ignore")
+        content = p.read_text(encoding="utf-8", errors="replace")
+        write_txt = file_path
+        write_docx = None
 
     genai.configure(api_key=config.google_api_key)
-    model = genai.GenerativeModel(config.model_pro)
 
-    prompt = f"""You are editing a legal document. Apply ONLY the change described below.
-Return the complete revised document text — no preamble, no commentary, no markdown.
-Preserve all formatting structure, paragraph numbering, headings, and content
-not mentioned in the change.
+    # ── Stage 1: structural analysis (Flash — fast and cheap) ────────────────
+    analysis_prompt = f"""You are analyzing a legal document before editing it.
 
-CHANGE REQUESTED:
+REQUESTED CHANGE:
 {instruction}
 
 DOCUMENT:
+{content[:8000]}{"[...truncated for analysis...]" if len(content) > 8000 else ""}
+
+Answer the following — be specific and precise:
+
+1. DOCUMENT TYPE: What kind of legal document is this?
+   (petition, affidavit, motion, proposed order, exhibit index, etc.)
+
+2. RELEVANT SECTION: Which named section or heading does this change belong under?
+   Quote the exact heading text if one exists.
+
+3. INSERTION POINT: After which specific paragraph or sentence should new content
+   be inserted? Quote the last sentence of that paragraph verbatim.
+   If the change modifies existing text, quote the exact sentence to modify.
+
+4. NUMBERING SCHEME: How are paragraphs numbered?
+   (e.g., "¶ 1.", "1.", "(a)", no numbers, Roman numerals — give an example)
+
+5. RENUMBERING NEEDED: If content is inserted mid-document, which paragraph
+   numbers must be updated? Give the old → new mapping (e.g., ¶ 14 → ¶ 15).
+
+6. TONE AND STYLE: In 1-2 sentences, describe the writing style of the surrounding
+   text so the new content can match it exactly.
+
+7. EDIT PLAN: In 1-2 sentences, state exactly what you will do."""
+
+    flash_model = genai.GenerativeModel(config.model_flash)
+    flash_cfg   = GenerationConfig(temperature=0.1, max_output_tokens=1024)
+    try:
+        analysis_resp = await asyncio.to_thread(
+            flash_model.generate_content, analysis_prompt,
+            generation_config=flash_cfg,
+        )
+        analysis = (analysis_resp.text or "").strip()
+    except Exception as exc:
+        print(f"  Warning: structure analysis failed ({exc}) — proceeding without plan.")
+        analysis = "No structural analysis available."
+
+    # ── Stage 2: execute the edit (Pro — full document rewrite) ──────────────
+    exec_prompt = f"""You are a senior attorney editing a court filing.
+Apply the requested change so that the result reads as though the document
+was always written this way — perfectly integrated in placement, tone, and format.
+
+═══ REQUESTED CHANGE ═══
+{instruction}
+
+═══ STRUCTURAL ANALYSIS (follow this plan exactly) ═══
+{analysis}
+
+═══ EDITING RULES ═══
+• Place new content at the EXACT insertion point identified above — not at the end
+• Match the paragraph numbering scheme character-for-character (e.g. "¶ 14." not "14.")
+• Renumber ALL subsequent paragraphs if inserting mid-document
+• Write new sentences in the same legal register as the surrounding text
+• Add a transitional phrase where the new paragraph follows from prior context
+  (e.g., "Following that incident...", "In addition to the foregoing...",
+   "Consistent with the above,...")
+• If modifying existing text, change only the targeted sentence(s)
+• Preserve every section heading, caption, signature block, and exhibit label exactly
+• Do NOT add any new section headers or labels that don't already exist
+• Do NOT alter any content not directly affected by the requested change
+
+Return ONLY the final revised document — no analysis, no commentary, no markdown fences.
+The document must be clean and ready to file.
+
+═══ ORIGINAL DOCUMENT ═══
 {content}
 
-Write the complete revised document now:"""
+═══ REVISED DOCUMENT ═══"""
 
-    gen_config = GenerationConfig(temperature=0.1, max_output_tokens=16384)
+    pro_model = genai.GenerativeModel(config.model_pro)
+    pro_cfg   = GenerationConfig(temperature=0.15, max_output_tokens=16384)
     try:
-        response = await asyncio.to_thread(
-            model.generate_content, prompt, generation_config=gen_config
+        exec_resp = await asyncio.to_thread(
+            pro_model.generate_content, exec_prompt, generation_config=pro_cfg,
         )
-        revised = (response.text or "").strip()
-        if not revised:
-            print(f"  AI returned empty output — {Path(file_path).name} unchanged.")
-            return
+        revised = (exec_resp.text or "").strip()
     except Exception as exc:
-        print(f"  AI fix failed for {Path(file_path).name}: {exc}")
+        print(f"  AI fix failed for {p.name}: {exc}")
         return
 
-    # Rebuild the docx from the revised text
-    if DOCX_AVAILABLE and file_path.endswith(".docx"):
-        # Write to a temp txt, convert back to docx, clean up
-        tmp = file_path.replace(".docx", "_aitmp.txt")
+    if not revised:
+        print(f"  AI returned empty output — {p.name} unchanged.")
+        return
+
+    # Strip any markdown fences the model may have added
+    if revised.startswith("```"):
+        revised = re.sub(r'^```[^\n]*\n?', '', revised)
+        revised = re.sub(r'\n?```\s*$', '', revised)
+
+    # ── Write results ─────────────────────────────────────────────────────────
+    if write_txt:
+        Path(write_txt).write_text(revised, encoding="utf-8")
+    if write_docx:
+        tmp = str(Path(write_docx).with_suffix("._aitmp.txt"))
         Path(tmp).write_text(revised, encoding="utf-8")
         try:
-            txt_to_docx(tmp, file_path)
+            txt_to_docx(tmp, write_docx)
         finally:
             Path(tmp).unlink(missing_ok=True)
-    else:
-        Path(file_path).write_text(revised, encoding="utf-8")
+    print(f"  AI fix applied → {p.name}")

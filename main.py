@@ -715,41 +715,8 @@ async def run_preflight_dialogue(
 
 async def _ai_edit_document(config, file_path: str, instruction: str) -> None:
     """Apply an AI-assisted targeted edit to a generated document, in-place."""
-    try:
-        import google.generativeai as genai
-        from google.generativeai.types import GenerationConfig
-    except ImportError:
-        print("  google-generativeai not available — edit skipped.")
-        return
-
-    content = Path(file_path).read_text(encoding="utf-8")
-    genai.configure(api_key=config.google_api_key)
-    model = genai.GenerativeModel(config.model_pro)
-
-    prompt = f"""You are editing a legal document. Apply ONLY the change described below.
-Do not add preamble, commentary, or notes — return the complete revised document only.
-Preserve all formatting, structure, paragraph numbering, and content not mentioned in the change.
-
-CHANGE REQUESTED:
-{instruction}
-
-DOCUMENT:
-{content}
-
-Write the complete revised document now:"""
-
-    gen_config = GenerationConfig(temperature=0.1, max_output_tokens=16384)
-    try:
-        response = await asyncio.to_thread(
-            model.generate_content, prompt, generation_config=gen_config
-        )
-        revised = (response.text or "").strip()
-        if revised:
-            Path(file_path).write_text(revised, encoding="utf-8")
-        else:
-            print("  AI returned empty output — file unchanged.")
-    except Exception as exc:
-        print(f"  AI edit failed: {exc}")
+    from src.documents.docx_writer import ai_fix_docx
+    await ai_fix_docx(config, file_path, instruction)
 
 
 async def run_evidence_analysis(
