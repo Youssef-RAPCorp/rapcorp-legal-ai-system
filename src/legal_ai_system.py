@@ -920,8 +920,19 @@ Return ONLY valid JSON:
                 strategy_plan_block = strategy_plan.as_prompt_block()
                 print(f"    Strategy score: {strategy_plan.argument_score:.1f}/10 "
                       f"({strategy_plan.refinement_cycles} cycles)")
+                # Save the full thinking log alongside the output
+                self._last_thinking_log = strategy_plan.thinking_log
+                if output_dir:
+                    _log_path = Path(output_dir) / "00_THINKING_LOG.txt"
+                    try:
+                        _log_path.write_text(strategy_plan.thinking_log, encoding="utf-8")
+                        print(f"    Thinking log saved → {_log_path.name}")
+                    except Exception:
+                        pass
             except Exception as e:
+                import traceback as _tb
                 print(f"    Thinking engine failed (non-fatal): {e}")
+                print(_tb.format_exc()[:500])
 
         # Expose to GUI for simulation / live lawyer tabs
         self._last_case_law_context  = case_law_context
@@ -1098,6 +1109,44 @@ Return ONLY the JSON object — no preamble, no markdown fences."""
             model_used=result.get("model", ""),
             cost=result.get("cost", 0.0),
         )
+
+    async def refine_document(
+        self,
+        file_path: str,
+        instructions: str,
+        output_dir: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Refine an existing generated document with new instructions or information.
+
+        Args:
+            file_path:    Path to the existing .txt document.
+            instructions: What to change, add, or incorporate.
+            output_dir:   Where to save (defaults to same directory as file_path).
+
+        Returns:
+            Dict with file metadata (same shape as generate_petition_documents items).
+        """
+        self._check_initialized()
+        if not self.document_generator:
+            raise RuntimeError("Document Generator not initialized.")
+
+        doc = await self.document_generator.refine_document(
+            file_path=file_path,
+            instructions=instructions,
+            output_dir=output_dir,
+        )
+
+        return {
+            "title":               doc.title,
+            "filename":            doc.filename,
+            "file_path":           doc.file_path,
+            "doc_type":            doc.doc_type,
+            "description":         doc.description,
+            "requires_signature":  doc.requires_signature,
+            "requires_notarization": doc.requires_notarization,
+            "filing_required":     doc.filing_required,
+        }
 
     async def generate_case_continuation(
         self,

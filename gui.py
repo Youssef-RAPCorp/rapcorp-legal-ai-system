@@ -440,6 +440,43 @@ class LegalAIApp(ctk.CTk):
         ctk.CTkFrame(tab, height=1, fg_color="gray25").grid(
             row=r, column=0, padx=12, pady=(10, 8), sticky="ew"); r += 1
 
+        # ── Refine / Update Mode ──────────────────────────────────────────
+        ctk.CTkLabel(tab, text="Refine / Update Existing Document",
+                     font=ctk.CTkFont(size=13, weight="bold"), anchor="w").grid(
+            row=r, column=0, padx=14, pady=(0, 2), sticky="ew"); r += 1
+
+        ctk.CTkLabel(
+            tab,
+            text="Describe new information or changes — the AI rewrites the selected "
+                 "document incorporating your input without disturbing anything else.",
+            text_color="gray55", anchor="w", wraplength=700, justify="left",
+            font=ctk.CTkFont(size=11),
+        ).grid(row=r, column=0, padx=14, sticky="ew"); r += 1
+
+        self._refine_box = ctk.CTkTextbox(tab, height=90,
+                                           font=ctk.CTkFont(size=11), wrap="word")
+        self._refine_box.grid(row=r, column=0, padx=12, pady=(6, 6), sticky="ew"); r += 1
+        self._refine_box.insert(
+            "0.0",
+            "E.g. \"Add the fact that on March 3, 2025 the petitioner denied access to my bank records\" "
+            "or \"Change all references to the hearing date from March 10 to April 7, 2025\"…",
+        )
+
+        self._refine_status = ctk.CTkLabel(tab, text="", text_color="gray55",
+                                            anchor="w", font=ctk.CTkFont(size=11))
+        self._refine_status.grid(row=r, column=0, padx=16, sticky="ew"); r += 1
+
+        self._refine_btn = ctk.CTkButton(
+            tab, text="Refine Selected Document",
+            command=self._refine_document,
+            height=34, fg_color="#6a309a", hover_color="#4a1a7a",
+        )
+        self._refine_btn.grid(row=r, column=0, padx=12, pady=(4, 14), sticky="w"); r += 1
+
+        # Divider
+        ctk.CTkFrame(tab, height=1, fg_color="gray25").grid(
+            row=r, column=0, padx=12, pady=(10, 8), sticky="ew"); r += 1
+
         # ── Preset Legal Updates ───────────────────────────────────────────
         ctk.CTkLabel(tab, text="Preset Legal Updates",
                      font=ctk.CTkFont(size=13, weight="bold"), anchor="w").grid(
@@ -902,6 +939,101 @@ class LegalAIApp(ctk.CTk):
         self._run_btn.configure(state="normal", text="▶  Run Analysis & Generate Docs")
         self._log(f"\n✗ Error: {msg}")
         messagebox.showerror("Pipeline error", msg[:400])
+
+    # ─── Refine document handler ──────────────────────────────────────────
+
+    def _refine_document(self):
+        instructions = self._refine_box.get("0.0", "end").strip()
+        placeholder  = "E.g. \"Add the fact that on March 3"
+        if not instructions or instructions.startswith(placeholder):
+            messagebox.showwarning("No instructions",
+                "Enter what to change or add before clicking Refine.")
+            return
+
+        if not hasattr(self, "_editable_docs") or not self._editable_docs:
+            messagebox.showwarning("No documents",
+                "Run an analysis first to generate documents, then select one to refine.")
+            return
+
+        # Resolve selected doc path (prefer .txt for the refine engine)
+        sel_name = self._edit_doc_var.get()
+        target   = None
+        for d in self._editable_docs:
+            if Path(d.get("docx_path", d.get("file_path", ""))).name == sel_name:
+                target = d
+                break
+        if not target:
+            target = self._editable_docs[0]
+
+        # Prefer the .txt source (the refine engine works on plain text)
+        file_path = target.get("file_path", target.get("docx_path", ""))
+        if not file_path or not Path(file_path).exists():
+            messagebox.showerror("File not found", f"Cannot locate: {file_path}")
+            return
+
+        system = getattr(self, "_system", None)
+        if not system:
+            messagebox.showwarning("Not ready", "Run an analysis first.")
+            return
+
+        self._refine_btn.configure(state="disabled", text="Refining…")
+        self._refine_status.configure(text="Refining document — please wait…")
+
+        def _thread():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                doc = loop.run_until_complete(
+                    system.refine_document(
+                        file_path=file_path,
+                        instructions=instructions,
+                        output_dir=str(Path(file_path).parent),
+                    )
+                )
+                # Also convert to .docx
+                from src.documents.docx_writer import txt_to_docx
+                new_path = doc["file_path"]
+                if new_path.endswith(".txt") and Path(new_path).exists():
+                    docx_path = new_path.replace(".txt", ".docx")
+                    try:
+                        txt_to_docx(new_path, docx_path, title=doc["title"])
+                        doc["docx_path"] = docx_path
+                    except Exception:
+                        doc["docx_path"] = new_path
+                self.after(0, lambda: self._on_refine_complete(doc))
+            except Exception as exc:
+                err = str(exc)
+                self.after(0, lambda: self._on_refine_error(err))
+            finally:
+                loop.close()
+
+        threading.Thread(target=_thread, daemon=True).start()
+
+    def _on_refine_complete(self, doc: dict):
+        self._refine_btn.configure(state="normal", text="Refine Selected Document")
+        new_name = Path(doc.get("docx_path", doc.get("file_path", "?"))).name
+        self._refine_status.configure(
+            text=f"Done. Saved as: {new_name}",
+            text_color="#7adf7a",
+        )
+        # Add the refined doc to the editable list and update the selector
+        self._editable_docs.append(doc)
+        names = [
+            Path(d.get("docx_path", d.get("file_path", "?"))).name
+            for d in self._editable_docs
+        ]
+        self._edit_doc_menu.configure(values=names)
+        self._edit_doc_var.set(new_name)
+        # Refresh generated documents tab
+        all_docs = getattr(self, "_generated_docs", []) + [doc]
+        self._generated_docs = all_docs
+        self._populate_docs_tab(all_docs)
+        self._log(f"\n✓ Document refined → {new_name}")
+
+    def _on_refine_error(self, msg: str):
+        self._refine_btn.configure(state="normal", text="Refine Selected Document")
+        self._refine_status.configure(text=f"Error: {msg[:100]}", text_color="#ff6b6b")
+        messagebox.showerror("Refine error", msg[:400])
 
     # ─── Simulation tab handlers ──────────────────────────────────────────
 

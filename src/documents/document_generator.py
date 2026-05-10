@@ -462,7 +462,7 @@ Order documents by priority (1 = must file first)."""
             f"\n\nRELEVANT CASE LAW (cite these where applicable in your legal claims):\n"
             f"{case_law_context[:4000]}"
         ) if case_law_context else ""
-        strategy_block = f"\n\n{strategy_plan[:2500]}" if strategy_plan else ""
+        strategy_block = f"\n\n{strategy_plan}" if strategy_plan else ""
 
         strongest = plan.get("strongest_argument", "")
         admissions = plan.get("opposing_admissions", [])
@@ -536,9 +536,7 @@ Write the complete petition document now:"""
             f"\n\nRELEVANT CASE LAW (reference where it supports specific facts or legal significance):\n"
             f"{case_law_context[:3000]}"
         ) if case_law_context else ""
-        strategy_block = (
-            f"\n\n{strategy_plan[:2000]}"
-        ) if strategy_plan else ""
+        strategy_block = f"\n\n{strategy_plan}" if strategy_plan else ""
 
         prompt = f"""{self._caption_block(plan, state, doc_info['title'])}
 Draft a sworn Affidavit of Facts in Support of the {plan['petition_type']}
@@ -755,7 +753,7 @@ Write the complete proposed order now:"""
         case_law_block = (
             f"\n\nRELEVANT CASE LAW (cite where applicable):\n{case_law_context[:3000]}"
         ) if case_law_context else ""
-        strategy_block = f"\n\n{strategy_plan[:2500]}" if strategy_plan else ""
+        strategy_block = f"\n\n{strategy_plan}" if strategy_plan else ""
 
         key_statutes = plan.get("key_statutes", [])
         statutes_block = ""
@@ -1184,5 +1182,84 @@ Write the complete {document_type.replace('_', ' ')} now:"""
             description=f"Continuation document: {type_guidance}",
             requires_signature=True,
             requires_notarization=document_type in ("affidavit",),
+            filing_required=True,
+        )
+
+    async def refine_document(
+        self,
+        file_path: str,
+        instructions: str,
+        output_dir: Optional[str] = None,
+    ) -> GeneratedDocument:
+        """
+        Refine or update an existing generated document.
+
+        Reads the current document content, applies the user's instructions
+        to produce a revised version, runs iterative review, and saves the
+        result as a new file alongside the original.
+
+        Args:
+            file_path:    Path to the existing .txt document to refine.
+            instructions: Plain-English description of the change to make,
+                          OR new information to incorporate.
+            output_dir:   Where to save the refined doc (defaults to same dir).
+
+        Returns:
+            GeneratedDocument pointing to the new refined file.
+        """
+        src_path = Path(file_path)
+        if not src_path.exists():
+            raise FileNotFoundError(f"Document not found: {file_path}")
+
+        # Read the original
+        original_content = src_path.read_text(encoding="utf-8", errors="replace")
+        # Strip trailing disclaimer if present
+        if "DISCLAIMER" in original_content:
+            original_content = original_content[:original_content.rfind("---")]
+
+        doc_title = src_path.stem.replace("_", " ").title()
+        out_dir   = output_dir or str(src_path.parent)
+
+        print(f"    Refining: {src_path.name}…")
+
+        prompt = f"""You are a senior litigation attorney refining an existing court document.
+
+ORIGINAL DOCUMENT:
+{original_content[:12000]}
+
+USER INSTRUCTIONS / NEW INFORMATION TO INCORPORATE:
+{instructions}
+
+TASK:
+Produce a complete, revised version of the document that applies the instructions above.
+
+Rules:
+- Preserve the overall structure, numbering, and format of the original
+- Preserve every fact, argument, citation, and section NOT mentioned in the instructions
+- Apply the change or addition described in the instructions precisely
+- If the instructions add new information, integrate it naturally at the appropriate place
+- If the instructions correct something, fix it consistently throughout the document
+- Do NOT add new facts or arguments beyond what the instructions specify
+- Plain text only — no markdown, no asterisks, no pound signs
+
+Write the complete refined document now:"""
+
+        content = await self._generate_text(prompt, max_tokens=16384)
+        content = self._fix_caption_parens(content) + self._DISCLAIMER
+
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        new_filename = f"{src_path.stem}_REFINED_{timestamp}.txt"
+        saved_path   = self._save(out_dir, new_filename, content)
+
+        print(f"    Refined document saved: {new_filename}")
+
+        return GeneratedDocument(
+            title=f"{doc_title} (Refined)",
+            filename=new_filename,
+            file_path=saved_path,
+            doc_type="refined",
+            description=f"Refined version of {src_path.name}: {instructions[:80]}",
+            requires_signature=True,
+            requires_notarization=False,
             filing_required=True,
         )
