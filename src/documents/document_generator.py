@@ -501,32 +501,39 @@ TONE AND REGISTER — READ THIS FIRST:
 - Write in a measured, professional, neutral legal register throughout
 - The introduction must state who the parties are, what is being filed, and
   the core position — factually and plainly. No dramatic opening sentences,
-  no rhetorical flourishes, no vivid metaphors ("legal death", "stripped of rights")
+  no rhetorical flourishes, no vivid metaphors
 - Persuasion comes from the strength of the facts and law, not from emotional language
-- Where the strategy plan contains dramatic phrasing, restate it as a calm,
-  precise legal proposition instead
+- Where the strategic context block contains dramatic phrasing, restate it as a
+  calm, precise legal proposition instead
 - The tone should read like a competent attorney filing a routine motion —
   confident and clear, not outraged or theatrical
 
-DRAFTING INSTRUCTIONS:
-- Use the standard format for a {state.value} court petition
-- Include: case caption, introduction, parties, jurisdiction/venue,
-  statement of facts (organized chronologically), legal claims with
-  applicable statutes and case law, prayer for relief
-- The introduction should: identify the party filing, identify the opposing
-  petition by name and date, and state in 2-3 sentences the basis for relief
-- Present the strongest argument in the first substantive section — stated
-  as a legal proposition supported by facts, not as an emotional accusation
-- Any admissions by the opposing party must be cited as a standalone argument
-  section with their own header, not folded into other paragraphs
+DOCUMENT STRUCTURE — NON-NEGOTIABLE:
+The strategic context block above informs the framing of legal arguments only.
+It does NOT override the document structure or the facts that must be included.
+
+  1. INTRODUCTION (2-3 sentences): who is filing, what petition is being responded
+     to by name and date, and the core basis for the relief sought.
+
+  2. ADMISSIONS BY THE OPPOSING PARTY (if any exist in the evidence):
+     If the opposing party has made any admissions — including motions they filed
+     that contradict their own petition — lead with this as the FIRST substantive
+     section. Quote the admission verbatim. This is always the strongest argument.
+
+  3. STATEMENT OF FACTS / CHRONOLOGICAL CHAIN OF EVENTS:
+     Every event from the chain of events must appear as its own numbered paragraph.
+     Every verbatim quote must be quoted exactly and attributed to the source document.
+     Every exhibit must be referenced. Do not collapse or omit any fact.
+
+  4. LEGAL ARGUMENTS: Use the strategic context to frame the argument sections.
+     Each argument gets its own Roman-numeral header. Lead with the strongest.
+     Cite statutes by exact section number. Cite at least 3 cases by full name.
+
+  5. PRAYER FOR RELIEF: specific numbered relief items.
+
 - Number every paragraph
 - Reference exhibits as Exhibit A, B, C etc. for each piece of evidence
 - Leave blanks like [DATE] or [CASE NUMBER] where information is unknown
-- Cite every statute from the KEY STATUTES list above by its exact section number
-  in the body of the legal claims — do not substitute generic references to "state law"
-- You MUST cite case law from the RELEVANT CASE LAW list above — include at
-  least 3 cases by full name and citation in the Legal Claims section, one per
-  major argument. Never omit the case law block.
 - Plain text only — NO markdown, NO asterisks for bold, NO pound signs for headings,
   NO hyphens as bullet markers. Use Roman numerals (I., II.) or letters (A., B.)
   for sections, and plain numbered paragraphs.
@@ -807,34 +814,45 @@ EVIDENCE SUMMARY:
 
 TONE AND REGISTER — READ THIS FIRST:
 - Write in a measured, professional, neutral legal register throughout
-- The introduction must state who is responding, identify the petition by name
-  and date, and state the responding party's position plainly and factually
 - No dramatic opening sentences, no vivid metaphors, no rhetorical flourishes
 - Persuasion comes from precise facts and well-cited law, not from emotional language
-- Where the strategy plan contains dramatic phrasing, restate it as a calm,
-  precise legal proposition instead
+- Where the strategic context block contains dramatic phrasing, restate it as a
+  calm, precise legal proposition instead
 - The tone should read like a competent attorney filing a routine response —
   confident and measured, not outraged or theatrical
 
-DRAFTING INSTRUCTIONS:
-- Written in the voice of the RESPONDING PARTY (not initiating a new lawsuit)
-- Include: case caption, introduction referencing the petition being responded to
-  (by name and filing date), numbered argument sections, prayer for relief,
-  signature block
-- The introduction: identify the responding party, identify the opposing petition,
-  and state in 2-3 sentences the grounds for opposing or modifying the relief sought
-- Present the strongest legal argument first — as a legal proposition, not as
-  an emotional appeal
-- Any admissions by the opposing party must appear in their own argument section
-- Cite every applicable statute by its full section number
-- You MUST cite case law from the RELEVANT CASE LAW list above — include at
-  least 3 cases by full name and citation, one anchoring each major argument.
-  Never omit the case law block.
-- Reference exhibits by letter (Exhibit A, B, C…)
+DOCUMENT STRUCTURE — NON-NEGOTIABLE:
+The strategic context block above informs the framing of legal arguments only.
+It does NOT override the document structure or the facts that must be included.
+
+  1. INTRODUCTION (2-3 sentences): identify the responding party, identify the
+     opposing petition by name and filing date, state the grounds for opposing
+     or modifying the relief sought.
+
+  2. ADMISSIONS BY THE OPPOSING PARTY (if any exist in the evidence):
+     If the opposing party has made any admissions — including contradictory
+     filings, motions to terminate their own actions, or statements conceding
+     key facts — this is the FIRST substantive section. Quote verbatim.
+     This is always the strongest argument and must not be buried.
+
+  3. CHRONOLOGICAL CHAIN OF EVENTS:
+     Every event from the chain of events must appear as its own numbered
+     paragraph. Every verbatim quote must be quoted exactly and attributed
+     with the source document as an exhibit. Every exhibit must be referenced.
+     Do not collapse, summarize, or omit any fact from the record.
+
+  4. LEGAL ARGUMENTS: Use the strategic context to frame argument sections.
+     Each major argument gets its own Roman-numeral section. Cite statutes
+     by exact section number. Cite at least 3 cases by full name and citation.
+
+  5. PRAYER FOR RELIEF: specific, numbered relief items.
+  6. SIGNATURE BLOCK.
+
 - Number every paragraph
+- Reference exhibits by letter (Exhibit A, B, C…)
+- Leave [BRACKETS] for unknown information (dates, case numbers, etc.)
 - Plain text only — NO markdown, NO asterisks, NO pound signs for headings.
   Use Roman numerals (I., II.) or letters (A., B.) for sections.
-- Leave [BRACKETS] for unknown information (dates, case numbers, etc.)
 
 Write the complete document now:"""
 

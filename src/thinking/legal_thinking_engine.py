@@ -58,44 +58,54 @@ class LegalStrategyPlan:
     opposition_analysis:    Optional["OppositionAnalysis"] = None
 
     def as_prompt_block(self) -> str:
-        """Render as an injection block for document generation prompts."""
+        """Render as an injection block for document generation prompts.
+
+        This block provides strategic context and argument priorities.
+        It does NOT override document structure — the facts section and
+        verbatim chain of events must remain intact exactly as they appear
+        in the evidence. The strategy informs HOW to frame the legal
+        argument sections, not what facts to include or omit.
+        """
         lines = [
-            "═══ LEGAL STRATEGY PLAN — FOLLOW THIS EXACTLY ═══",
+            "═══ STRATEGIC CONTEXT ═══",
+            "NOTE: This section informs legal argument framing only.",
+            "The facts section and verbatim chain of events are non-negotiable",
+            "— include every fact and quote regardless of what is listed here.",
             "",
-            "CASE THEORY (the overarching narrative):",
+            "CASE THEORY (the overarching framing for legal arguments):",
             self.case_theory,
             "",
-            "WHAT THE JUDGE CARES ABOUT MOST (tailor EVERY argument to this):",
+            "WHAT THE JUDGE CARES ABOUT MOST (shape argument language accordingly):",
             self.judge_profile_summary,
             "",
-            "THE NARRATIVE (tell this story in the document):",
+            "CASE OVERVIEW (for the introduction — state plainly, not dramatically):",
             self.narrative_arc,
             "",
-            "PRIMARY ARGUMENT (lead every document with this):",
+            "LEAD LEGAL ARGUMENT (open the arguments section with this):",
             self.primary_argument,
             "",
-            "SUPPORTING ARGUMENTS (use ALL of these, in this order):",
+            "ADDITIONAL LEGAL ARGUMENTS (include all, in this priority order):",
         ]
         for i, arg in enumerate(self.supporting_arguments, 1):
             lines.append(f"  {i}. {arg}")
         lines += [
             "",
-            "ATTACK PRE-EMPTIONS (address EACH before opposing counsel raises it):",
+            "ANTICIPATED COUNTER-ARGUMENTS (address each within the relevant argument section):",
         ]
         for ctr in self.counter_strategies:
             lines.append(f"  • {ctr}")
         lines += [
             "",
-            "THEIR WEAK POINTS (press these aggressively in argument sections):",
+            "WEAKNESSES IN THEIR POSITION (incorporate where relevant in argument sections):",
         ]
         for wp in self.their_weak_points:
             lines.append(f"  • {wp}")
         if self.key_statutes:
-            lines += ["", "MANDATORY STATUTES (cite every one by exact section number):"]
+            lines += ["", "STATUTES TO CITE (by exact section number in the legal arguments):"]
             for s in self.key_statutes:
                 lines.append(f"  — {s}")
         if self.key_cases:
-            lines += ["", "MANDATORY CASE CITATIONS (cite every one by name and citation):"]
+            lines += ["", "CASES TO CITE (by full name and citation, one per major argument):"]
             for c in self.key_cases:
                 lines.append(f"  — {c}")
         if self.prayer_for_relief:
