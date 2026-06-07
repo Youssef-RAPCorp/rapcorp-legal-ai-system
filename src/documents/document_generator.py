@@ -40,6 +40,34 @@ from src.documents.document_reviewer import DocumentReviewer
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# HELPERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _build_risk_block(research_bundle: Optional[Dict[str, Any]]) -> str:
+    """
+    Build the RISK ASSESSMENT CONTEXT block for petition and reply prompts.
+
+    Returns "" when no risk data is available. NOTE: this block is
+    deliberately injected into petition and reply documents only — never
+    into affidavits, which must stay within personal-knowledge facts.
+    """
+    if not research_bundle:
+        return ""
+    risk = research_bundle.get("risk") or {}
+    if not risk:
+        return ""
+    return (
+        "\n\nRISK ASSESSMENT CONTEXT "
+        "(preempt risk factors, amplify mitigating ones):\n"
+        f"  - Likelihood of success: {risk.get('likelihood_of_success')}\n"
+        f"  - Risk factors to preempt: {risk.get('risk_factors', [])}\n"
+        f"  - Mitigating factors to emphasize: {risk.get('mitigating_factors', [])}\n"
+        f"  - Recommended actions for prayer for relief: "
+        f"{risk.get('recommended_actions', [])}\n"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # DATA STRUCTURES
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -315,6 +343,7 @@ Use the case facts below to fill in the party / matter lines and case number.
         clarifications: Dict[str, str],
         state: USState,
         doc_mode: str = "petition",
+        research_bundle: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Ask Gemini to determine the petition type and what documents are
@@ -348,6 +377,35 @@ Use "petition_type" to name the response action (e.g. "Objection and Motion to T
 You are planning the complete filing package to initiate a new legal action."""
             doc_type_hint = "petition|affidavit|exhibit_index|certificate_of_service|cover_sheet|proposed_order|summons|other"
 
+        # Build the research-from-agents block if a bundle was provided
+        research_block = ""
+        if research_bundle:
+            statutes = research_bundle.get("statutes") or {}
+            risk     = research_bundle.get("risk") or {}
+            if statutes or risk:
+                research_block = "\nRESEARCH FROM AGENTS — USE THESE TO GROUND YOUR PLAN:\n"
+                if statutes:
+                    research_block += (
+                        "\nSTATUTE FINDER FOUND (use as the base set for key_statutes):\n"
+                        f"  - Federal: {statutes.get('federal_statutes', [])}\n"
+                        f"  - State:   {statutes.get('state_statutes', [])}\n"
+                        f"  - Regulations: {statutes.get('regulations', [])}\n"
+                        f"  - Relevance: {statutes.get('relevance_explanation', '')}\n"
+                    )
+                if risk:
+                    research_block += (
+                        "\nRISK ASSESSOR FOUND:\n"
+                        f"  - Likelihood of success: {risk.get('likelihood_of_success')}\n"
+                        f"  - Key risk factors: {risk.get('risk_factors', [])}\n"
+                        f"  - Mitigating factors: {risk.get('mitigating_factors', [])}\n"
+                        f"  - Recommended actions: {risk.get('recommended_actions', [])}\n"
+                    )
+                research_block += (
+                    "\nUse the StatuteFinder citations as the base for key_statutes — "
+                    "add others only if clearly applicable. Choose strongest_argument so "
+                    "it maps to a mitigating factor or a likelihood driver above.\n"
+                )
+
         prompt = f"""You are a legal document specialist. Based on the case situation and
 evidence analysis below, plan the required court documents.
 
@@ -364,7 +422,7 @@ EVIDENCE ANALYSIS SUMMARY:
 
 KEY FINDINGS:
 {json.dumps(analysis.key_findings, indent=2)}
-
+{research_block}
 Before planning documents, identify:
 - Any admissions by the opposing party (e.g. a motion they filed that concedes a key point)
 - Any court findings or orders that already favour the filer
@@ -453,6 +511,7 @@ Order documents by priority (1 = must file first)."""
         clarifications: Dict[str, str], plan: Dict, state: USState,
         case_law_context: str = "",
         strategy_plan: str = "",
+        research_bundle: Optional[Dict[str, Any]] = None,
     ) -> str:
         clarification_block = (
             "\n".join(f"Q: {q}\nA: {a}" for q, a in clarifications.items())
@@ -463,6 +522,7 @@ Order documents by priority (1 = must file first)."""
             f"{case_law_context[:4000]}"
         ) if case_law_context else ""
         strategy_block = f"\n\n{strategy_plan}" if strategy_plan else ""
+        risk_block = _build_risk_block(research_bundle)
 
         strongest = plan.get("strongest_argument", "")
         admissions = plan.get("opposing_admissions", [])
@@ -493,7 +553,7 @@ PETITIONER CLARIFICATIONS:
 
 EVIDENCE SUMMARY:
 {self._evidence_summary_for_prompt(analysis)}
-{self._chain_block_for_prompt(analysis)}{case_law_block}{strength_block}{statutes_block}{strategy_block}
+{self._chain_block_for_prompt(analysis)}{case_law_block}{strength_block}{statutes_block}{risk_block}{strategy_block}
 
 {self._FIDELITY_RULES}
 
@@ -765,6 +825,7 @@ Write the complete proposed order now:"""
         clarifications: Dict[str, str], plan: Dict, state: USState,
         case_law_context: str = "",
         strategy_plan: str = "",
+        research_bundle: Optional[Dict[str, Any]] = None,
     ) -> str:
         clarification_block = (
             "\n".join(f"Q: {q}\nA: {a}" for q, a in clarifications.items())
@@ -774,6 +835,7 @@ Write the complete proposed order now:"""
             f"\n\nRELEVANT CASE LAW (cite where applicable):\n{case_law_context[:3000]}"
         ) if case_law_context else ""
         strategy_block = f"\n\n{strategy_plan}" if strategy_plan else ""
+        risk_block = _build_risk_block(research_bundle)
 
         key_statutes = plan.get("key_statutes", [])
         statutes_block = ""
@@ -808,7 +870,7 @@ CLARIFICATIONS:
 
 EVIDENCE SUMMARY:
 {self._evidence_summary_for_prompt(analysis)}
-{self._chain_block_for_prompt(analysis)}{case_law_block}{statutes_block}{strength_block}{strategy_block}
+{self._chain_block_for_prompt(analysis)}{case_law_block}{statutes_block}{strength_block}{risk_block}{strategy_block}
 
 {self._FIDELITY_RULES}
 
@@ -989,6 +1051,7 @@ Signature: _______________________________ Date: _______________
         doc_mode: str = "petition",
         case_documents_context: str = "",
         strategy_plan: str = "",
+        research_bundle: Optional[Dict[str, Any]] = None,
     ) -> List[GeneratedDocument]:
         """
         Generate the complete package of documents needed to file the petition.
@@ -1008,7 +1071,10 @@ Signature: _______________________________ Date: _______________
 
         # Determine what documents are needed
         print("    Planning required documents...")
-        plan = await self._plan_documents(situation, analysis, clarifications, state, doc_mode)
+        plan = await self._plan_documents(
+            situation, analysis, clarifications, state, doc_mode,
+            research_bundle=research_bundle,
+        )
         print(f"    Petition type: {plan['petition_type']}")
         print(f"    Court: {plan['court_name']}")
         print(f"    Documents to generate: {len(plan['documents'])}")
@@ -1035,10 +1101,12 @@ Signature: _______________________________ Date: _______________
             content = None
 
             if doc_type == "petition" and doc_mode != "reply":
-                content = await self._gen_petition(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan)
+                content = await self._gen_petition(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan, research_bundle=research_bundle)
             elif doc_type == "petition" and doc_mode == "reply":
-                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan)
+                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan, research_bundle=research_bundle)
             elif doc_type == "affidavit":
+                # Affidavit deliberately does NOT receive the risk block — it
+                # must stay factual and within personal knowledge.
                 content = await self._gen_affidavit(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan)
             elif doc_type == "exhibit_index":
                 content = await self._gen_exhibit_index(doc_info, situation, analysis, plan, state)
@@ -1050,9 +1118,9 @@ Signature: _______________________________ Date: _______________
                 content = self._gen_cover_sheet(plan, situation, state)
             elif doc_type in ("objection", "motion_to_terminate", "reply_brief",
                               "response", "motion", "supplemental_pleading", "notice"):
-                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan)
+                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan, research_bundle=research_bundle)
             else:
-                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan)
+                content = await self._gen_reply_document(doc_info, situation, analysis, clarifications, plan, state, case_law_context, strategy_plan=strategy_plan, research_bundle=research_bundle)
 
             if content:
                 # Iterative review for AI-generated substantive documents

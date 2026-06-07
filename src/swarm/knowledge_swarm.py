@@ -750,18 +750,21 @@ class RiskAssessor(BaseAgent):
         
         prompt = f"""
         Assess the legal risks for this matter:
-        
+
         Issue: {query}
         Facts: {json.dumps(facts)}
-        
-        Evaluate:
-        1. Likelihood of success (1-10)
-        2. Key risk factors
-        3. Mitigating factors
-        4. Best/worst case scenarios
-        5. Recommended actions
-        
-        Return assessment in JSON format.
+
+        Return a JSON object with exactly these keys:
+        {{
+            "likelihood_of_success": <integer 1-10>,
+            "risk_factors": ["specific risk factor 1", "specific risk factor 2"],
+            "mitigating_factors": ["specific mitigating factor 1", "specific mitigating factor 2"],
+            "best_case_scenario": "one-sentence description",
+            "worst_case_scenario": "one-sentence description",
+            "recommended_actions": ["specific action 1", "specific action 2"]
+        }}
+
+        Be specific and grounded in the facts above. Do not return any other keys.
         """
         
         if self.llm:

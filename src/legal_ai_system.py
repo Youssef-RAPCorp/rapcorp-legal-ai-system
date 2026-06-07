@@ -20,6 +20,7 @@ from typing import Optional, Dict, List, Any
 from pathlib import Path
 import json
 import os
+import re
 
 # Internal imports
 from configs.config import (
@@ -845,6 +846,7 @@ Return ONLY valid JSON:
         # Run swarm in quick mode to retrieve real case law from CourtListener,
         # then format it for injection into the document generation prompts.
         case_law_context = ""
+        research_bundle: Dict[str, Any] = {"case_law": "", "statutes": {}, "risk": {}}
         if self.swarm:
             print("  Retrieving relevant case law...")
             try:
@@ -883,6 +885,42 @@ Return ONLY valid JSON:
                     print(f"    {len(cases)} cases from CourtListener via {queries_fired} queries (status: {api_status})")
                 else:
                     print(f"    No cases retrieved (CourtListener status: {api_status})")
+
+                # Extract StatuteFinder and RiskAssessor outputs from the same
+                # quick-mode bundle (previously discarded). Both agents store
+                # their payloads as either a parsed dict/list or a raw JSON
+                # string — _parse_agent_json normalizes either form.
+                def _parse_agent_json(raw: Any, fallback: Any, agent_name: str) -> Any:
+                    if isinstance(raw, (dict, list)):
+                        return raw
+                    if isinstance(raw, str):
+                        text = raw.strip()
+                        if text.startswith("```"):
+                            # Strip ```json or ``` fences
+                            text = re.sub(r'^```[^\n]*\n?', '', text)
+                            text = re.sub(r'\n?```\s*$', '', text)
+                        try:
+                            return json.loads(text)
+                        except (json.JSONDecodeError, TypeError) as exc:
+                            print(f"    Warning: {agent_name} JSON parse failed (non-fatal): {exc}")
+                            return fallback
+                    return fallback
+
+                sf_data = swarm_results.get("results", {}).get("statute_finder", {})
+                ra_data = swarm_results.get("results", {}).get("risk_assessor", {})
+
+                statutes_from_agent = _parse_agent_json(
+                    sf_data.get("statutes"), {}, "StatuteFinder"
+                )
+                risk_from_agent = _parse_agent_json(
+                    ra_data.get("risk_assessment"), {}, "RiskAssessor"
+                )
+
+                research_bundle = {
+                    "case_law": case_law_context,
+                    "statutes": statutes_from_agent if isinstance(statutes_from_agent, dict) else {},
+                    "risk":     risk_from_agent if isinstance(risk_from_agent, dict) else {},
+                }
             except Exception as e:
                 print(f"    Case law retrieval failed (non-fatal): {e}")
 
@@ -959,6 +997,7 @@ Return ONLY valid JSON:
             doc_mode=doc_mode,
             case_documents_context=case_documents_context,
             strategy_plan=strategy_plan_block,
+            research_bundle=research_bundle,
         )
 
         return [
