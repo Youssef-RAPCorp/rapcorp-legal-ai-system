@@ -312,6 +312,7 @@ class LegalAIApp(ctk.CTk):
         self._build_tab_research()
         self._build_tab_simulation()
         self._build_tab_live()
+        self._build_tab_insights()
 
         # ── Progress bar (shown during runs) ─────────────────────────────
         self._progress_bar = ctk.CTkProgressBar(main, mode="indeterminate", height=6)
@@ -744,6 +745,241 @@ class LegalAIApp(ctk.CTk):
         self._live_server = None
         self._live_loop: asyncio.AbstractEventLoop | None = None
         self._live_running = False
+
+    # ── Tab: Insights ─────────────────────────────────────────────────────
+
+    def _build_tab_insights(self):
+        tab = self._tabs.add("Insights")
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(6, weight=1)
+
+        r = 0
+
+        ctk.CTkLabel(tab, text="Ask for Insights",
+                     font=ctk.CTkFont(size=13, weight="bold"), anchor="w").grid(
+            row=r, column=0, padx=14, pady=(12, 2), sticky="ew"); r += 1
+
+        ctk.CTkLabel(
+            tab,
+            text="Ask the AI whether something is a good idea, get elaboration on a "
+                 "concept, brainstorm alternatives, or critique a plan. When 'use case "
+                 "context' is on, answers are grounded in your active case.",
+            text_color="gray55", anchor="w", wraplength=760, justify="left",
+            font=ctk.CTkFont(size=11),
+        ).grid(row=r, column=0, padx=14, sticky="ew"); r += 1
+
+        # ── Mode + context row ──────────────────────────────────────────
+        opts = ctk.CTkFrame(tab, fg_color="transparent")
+        opts.grid(row=r, column=0, padx=12, pady=(10, 4), sticky="ew"); r += 1
+        opts.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(opts, text="Mode:", anchor="w",
+                     font=ctk.CTkFont(size=11)).grid(row=0, column=0, sticky="w")
+        self._insight_mode_var = ctk.StringVar(value="evaluate")
+        ctk.CTkOptionMenu(
+            opts, variable=self._insight_mode_var,
+            values=["evaluate", "elaborate", "critique",
+                    "brainstorm", "explain", "open"],
+            dynamic_resizing=False, width=140,
+        ).grid(row=1, column=0, padx=(0, 12), sticky="w")
+
+        self._insight_use_context_var = ctk.BooleanVar(value=True)
+        ctk.CTkSwitch(opts, text="Use current case context",
+                      variable=self._insight_use_context_var).grid(
+            row=1, column=1, sticky="w")
+
+        # ── Mode descriptions hint ──────────────────────────────────────
+        self._insight_mode_hint = ctk.CTkLabel(
+            tab,
+            text=self._insight_mode_description("evaluate"),
+            text_color="gray55", anchor="w", wraplength=760, justify="left",
+            font=ctk.CTkFont(size=11),
+        )
+        self._insight_mode_hint.grid(row=r, column=0, padx=16, sticky="ew"); r += 1
+
+        # Update hint whenever mode changes
+        self._insight_mode_var.trace_add("write", self._on_insight_mode_change)
+
+        # ── Question box ────────────────────────────────────────────────
+        ctk.CTkLabel(tab, text="Question",
+                     font=ctk.CTkFont(size=12, weight="bold"), anchor="w").grid(
+            row=r, column=0, padx=14, pady=(8, 2), sticky="ew"); r += 1
+
+        self._insight_question_box = ctk.CTkTextbox(
+            tab, height=120, font=ctk.CTkFont(size=12), wrap="word")
+        self._insight_question_box.grid(
+            row=r, column=0, padx=12, pady=(0, 6), sticky="ew"); r += 1
+        self._insight_question_box.insert(
+            "0.0",
+            "E.g. \"Should we lead with the petitioner's admission or with our "
+            "strongest legal authority?\"",
+        )
+
+        # ── Ask button + status ─────────────────────────────────────────
+        btn_row = ctk.CTkFrame(tab, fg_color="transparent")
+        btn_row.grid(row=r, column=0, padx=12, pady=(4, 4), sticky="ew"); r += 1
+        btn_row.grid_columnconfigure(1, weight=1)
+
+        self._insight_ask_btn = ctk.CTkButton(
+            btn_row, text="Ask",
+            command=self._ask_insight,
+            height=40, font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#7d2ea8", hover_color="#52186e",
+            width=160,
+        )
+        self._insight_ask_btn.grid(row=0, column=0, sticky="w")
+
+        ctk.CTkButton(
+            btn_row, text="Clear", width=80, command=self._clear_insight,
+        ).grid(row=0, column=1, padx=(8, 0), sticky="w")
+
+        self._insight_status = ctk.CTkLabel(
+            tab, text="", text_color="gray55", anchor="w",
+            font=ctk.CTkFont(size=11))
+        self._insight_status.grid(row=r, column=0, padx=16, sticky="ew"); r += 1
+
+        # ── Response box ────────────────────────────────────────────────
+        ctk.CTkLabel(tab, text="Response",
+                     font=ctk.CTkFont(size=12, weight="bold"), anchor="w").grid(
+            row=r, column=0, padx=14, pady=(4, 2), sticky="ew"); r += 1
+
+        tab.grid_rowconfigure(r, weight=1)
+        self._insight_response_box = ctk.CTkTextbox(
+            tab, state="disabled",
+            font=ctk.CTkFont(family="Georgia", size=12), wrap="word",
+        )
+        self._insight_response_box.grid(
+            row=r, column=0, padx=12, pady=(0, 12), sticky="nsew")
+
+    @staticmethod
+    def _insight_mode_description(mode: str) -> str:
+        descriptions = {
+            "evaluate":   "Evaluate — Is this a good idea? You'll get pros, cons, and a recommendation.",
+            "elaborate":  "Elaborate — Expand on the idea with concrete detail, examples, and next steps.",
+            "critique":   "Critique — Find the risks, blind spots, and likely failure modes.",
+            "brainstorm": "Brainstorm — Generate diverse alternative approaches with trade-offs.",
+            "explain":    "Explain — Break down a statute, case, concept, or doctrine in plain English.",
+            "open":       "Open — Free-form question. The AI will structure the answer however fits best.",
+        }
+        return descriptions.get(mode, "")
+
+    def _on_insight_mode_change(self, *args):
+        mode = self._insight_mode_var.get()
+        self._insight_mode_hint.configure(text=self._insight_mode_description(mode))
+
+    def _clear_insight(self):
+        self._insight_question_box.delete("0.0", "end")
+        self._insight_response_box.configure(state="normal")
+        self._insight_response_box.delete("0.0", "end")
+        self._insight_response_box.configure(state="disabled")
+        self._insight_status.configure(text="")
+
+    def _ask_insight(self):
+        question = self._insight_question_box.get("0.0", "end").strip()
+        if not question or question.startswith("E.g."):
+            messagebox.showwarning("No question",
+                "Enter a question before clicking Ask.")
+            return
+
+        # The InsightEngine only needs a LegalAIConfig (API key). If a full
+        # orchestrator has already been booted by an earlier analysis, reuse
+        # its config; otherwise instantiate a config directly so the Insights
+        # tab works even before any analysis has been run.
+        if self._system is not None:
+            config = self._system.config
+        else:
+            try:
+                from configs.config import LegalAIConfig
+                config = LegalAIConfig()
+                if not config.google_api_key:
+                    raise ValueError("GOOGLE_API_KEY not set in environment.")
+            except Exception as exc:
+                messagebox.showerror("Setup error",
+                    f"Could not load config: {exc}")
+                return
+
+        mode_str = self._insight_mode_var.get()
+        use_ctx  = bool(self._insight_use_context_var.get())
+
+        # Gather available case context — best effort
+        situation = getattr(self, "_last_situation", "") or ""
+        analysis  = getattr(self, "_last_analysis", None)
+        evidence_summary = ""
+        if analysis is not None:
+            evidence_summary = getattr(analysis, "summary", "") or ""
+        strategy_plan = getattr(self, "_last_strategy_plan", "") or ""
+
+        # Pull a few generated doc excerpts (first 3000 chars each) if loaded
+        doc_excerpts: list[str] = []
+        for d in (getattr(self, "_editable_docs", []) or [])[:4]:
+            txt_path = d.get("file_path", "")
+            if txt_path and Path(txt_path).exists() and txt_path.endswith(".txt"):
+                try:
+                    text = Path(txt_path).read_text(encoding="utf-8", errors="replace")
+                    name = d.get("filename", Path(txt_path).name)
+                    doc_excerpts.append(f"[{name}]\n{text[:3000]}")
+                except Exception:
+                    pass
+
+        self._insight_ask_btn.configure(state="disabled", text="Asking…")
+        self._insight_status.configure(text="Thinking…", text_color="gray55")
+        self._insight_response_box.configure(state="normal")
+        self._insight_response_box.delete("0.0", "end")
+        self._insight_response_box.configure(state="disabled")
+
+        threading.Thread(
+            target=self._ask_insight_thread,
+            args=(config, question, mode_str, use_ctx,
+                  situation, evidence_summary, doc_excerpts, strategy_plan),
+            daemon=True,
+        ).start()
+
+    def _ask_insight_thread(self, config, question, mode_str, use_ctx,
+                             situation, evidence_summary, doc_excerpts,
+                             strategy_plan):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            from src.insights import InsightEngine, InsightMode
+            engine = InsightEngine(config)
+            try:
+                mode = InsightMode(mode_str)
+            except ValueError:
+                mode = InsightMode.OPEN
+            resp = loop.run_until_complete(engine.ask(
+                question=question,
+                mode=mode,
+                case_situation=situation,
+                evidence_summary=evidence_summary,
+                generated_docs=doc_excerpts,
+                strategy_plan=strategy_plan,
+                use_context=use_ctx,
+            ))
+            self.after(0, lambda: self._on_insight_done(resp))
+        except Exception as exc:
+            err = f"{exc}\n{traceback.format_exc()}"
+            self.after(0, lambda: self._on_insight_error(err))
+        finally:
+            loop.close()
+
+    def _on_insight_done(self, resp):
+        self._insight_ask_btn.configure(state="normal", text="Ask")
+        if resp.error:
+            self._insight_status.configure(
+                text=f"Error: {resp.error[:120]}", text_color="#ff6b6b")
+            return
+        self._insight_status.configure(
+            text=f"Done — {resp.context_summary}", text_color="gray55")
+        self._insight_response_box.configure(state="normal")
+        self._insight_response_box.delete("0.0", "end")
+        self._insight_response_box.insert("0.0", resp.answer)
+        self._insight_response_box.configure(state="disabled")
+
+    def _on_insight_error(self, msg: str):
+        self._insight_ask_btn.configure(state="normal", text="Ask")
+        self._insight_status.configure(
+            text=f"Error: {msg[:120]}", text_color="#ff6b6b")
+        messagebox.showerror("Insight error", msg[:400])
 
     # ─── File upload helpers ──────────────────────────────────────────────
 
