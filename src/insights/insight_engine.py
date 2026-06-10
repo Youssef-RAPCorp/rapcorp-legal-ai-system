@@ -318,23 +318,41 @@ class InsightEngine:
             return "", "No case context available — general-purpose answer."
 
         block = (
-            "═══ ACTIVE CASE CONTEXT ═══\n"
-            "Use this as the factual backdrop when answering. If the question is\n"
-            "about something else entirely, you may answer generally instead.\n\n"
+            "═══ ACTIVE CASE CONTEXT — GROUND YOUR ANSWER IN THIS ═══\n"
+            "The user is working on the specific matter described below. Your\n"
+            "answer MUST reference these specific facts, parties, documents,\n"
+            "dates, and circumstances — not generic legal principles in the\n"
+            "abstract. Cite the specific document or fact you are drawing on\n"
+            "when you make a point. If the question is genuinely unrelated to\n"
+            "this matter, say so explicitly before answering generally.\n\n"
             + "\n\n".join(parts)
-            + "\n═══════════════════════════"
+            + "\n═══════════════════════════════════════════════════════"
         )
         return block, "Used: " + ", ".join(included)
 
     def _build_prompt(
         self, question: str, mode_instruction: str, context_block: str,
     ) -> str:
-        ctx_section = f"\n{context_block}\n" if context_block else ""
+        if context_block:
+            grounding_rule = (
+                "\nGROUNDING REQUIREMENT (highest priority):\n"
+                "Active case context is provided below. Every point in your\n"
+                "answer must explicitly reference the specific parties, dates,\n"
+                "documents, evidence, or facts from that context. Do NOT give\n"
+                "generic advice that could apply to any case. When you cite a\n"
+                "fact, name its source (e.g. 'per the petitioner's March 24\n"
+                "motion' or 'per the affidavit at paragraph 12').\n"
+            )
+            ctx_section = f"\n{context_block}\n"
+        else:
+            grounding_rule = ""
+            ctx_section = ""
+
         return f"""You are a senior legal strategist providing direct, useful
 insights to an attorney or pro se litigant.
 
 {mode_instruction}
-{ctx_section}
+{grounding_rule}{ctx_section}
 USER QUESTION:
 {question}
 

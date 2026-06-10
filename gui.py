@@ -901,25 +901,41 @@ class LegalAIApp(ctk.CTk):
         mode_str = self._insight_mode_var.get()
         use_ctx  = bool(self._insight_use_context_var.get())
 
-        # Gather available case context — best effort
+        # Gather available case context — best effort. Sources:
+        #   1. Situation textbox (set at run time)
+        #   2. Last evidence analysis summary (set during pipeline)
+        #   3. Strategy plan block (set during pipeline)
+        #   4. Generated documents (current run OR loaded previous session)
+        #   5. Uploaded case file text (always readable from self._case_files)
         situation = getattr(self, "_last_situation", "") or ""
-        analysis  = getattr(self, "_last_analysis", None)
+        # Fallback: pull the situation textbox directly if pipeline hasn't run
+        if not situation:
+            try:
+                situation = self._situation_box.get("0.0", "end").strip()
+            except Exception:
+                situation = ""
+
+        analysis = getattr(self, "_last_analysis", None)
         evidence_summary = ""
         if analysis is not None:
             evidence_summary = getattr(analysis, "summary", "") or ""
         strategy_plan = getattr(self, "_last_strategy_plan", "") or ""
 
-        # Pull a few generated doc excerpts (first 3000 chars each) if loaded
+        # Pull generated doc excerpts (up to 6, first 4000 chars each)
         doc_excerpts: list[str] = []
-        for d in (getattr(self, "_editable_docs", []) or [])[:4]:
+        for d in (getattr(self, "_editable_docs", []) or [])[:6]:
             txt_path = d.get("file_path", "")
             if txt_path and Path(txt_path).exists() and txt_path.endswith(".txt"):
                 try:
                     text = Path(txt_path).read_text(encoding="utf-8", errors="replace")
                     name = d.get("filename", Path(txt_path).name)
-                    doc_excerpts.append(f"[{name}]\n{text[:3000]}")
+                    doc_excerpts.append(f"[{name}]\n{text[:4000]}")
                 except Exception:
                     pass
+
+        # Pull uploaded case file text (works even with no analysis run yet).
+        # Truncate each file to keep prompt manageable.
+        case_file_text = self._read_uploaded_case_files_for_insight()
 
         self._insight_ask_btn.configure(state="disabled", text="Asking…")
         self._insight_status.configure(text="Thinking…", text_color="gray55")
@@ -930,13 +946,50 @@ class LegalAIApp(ctk.CTk):
         threading.Thread(
             target=self._ask_insight_thread,
             args=(config, question, mode_str, use_ctx,
-                  situation, evidence_summary, doc_excerpts, strategy_plan),
+                  situation, evidence_summary, doc_excerpts,
+                  strategy_plan, case_file_text),
             daemon=True,
         ).start()
 
+    def _read_uploaded_case_files_for_insight(self) -> str:
+        """Read every uploaded case + evidence file and return joined text."""
+        files = list(getattr(self, "_case_files", []) or []) \
+              + list(getattr(self, "_evidence_files", []) or [])
+        if not files:
+            return ""
+
+        try:
+            from src.documents.case_reader import CaseDirectoryScanner
+        except Exception:
+            return ""
+
+        try:
+            api_key = ""
+            if self._system is not None:
+                api_key = self._system.config.google_api_key or ""
+            else:
+                try:
+                    from configs.config import LegalAIConfig
+                    api_key = LegalAIConfig().google_api_key or ""
+                except Exception:
+                    api_key = ""
+            scanner = CaseDirectoryScanner(gemini_api_key=api_key)
+            docs = scanner.scan_files(files)
+        except Exception:
+            return ""
+
+        parts: list[str] = []
+        for d in docs:
+            if d.read_error or not d.text_content:
+                continue
+            # Cap per file so the prompt stays manageable
+            snippet = d.text_content[:6000]
+            parts.append(f"[{d.filename}]\n{snippet}")
+        return "\n\n".join(parts)
+
     def _ask_insight_thread(self, config, question, mode_str, use_ctx,
                              situation, evidence_summary, doc_excerpts,
-                             strategy_plan):
+                             strategy_plan, case_file_text):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -946,6 +999,17 @@ class LegalAIApp(ctk.CTk):
                 mode = InsightMode(mode_str)
             except ValueError:
                 mode = InsightMode.OPEN
+
+            # Build extra_context from uploaded case files. This goes through
+            # the same channel as the situation/evidence so the LLM sees it
+            # as part of the active case backdrop.
+            extra = ""
+            if case_file_text:
+                extra = (
+                    "UPLOADED CASE FILES (full content, may be lengthy):\n"
+                    + case_file_text
+                )
+
             resp = loop.run_until_complete(engine.ask(
                 question=question,
                 mode=mode,
@@ -953,6 +1017,7 @@ class LegalAIApp(ctk.CTk):
                 evidence_summary=evidence_summary,
                 generated_docs=doc_excerpts,
                 strategy_plan=strategy_plan,
+                extra_context=extra,
                 use_context=use_ctx,
             ))
             self.after(0, lambda: self._on_insight_done(resp))
