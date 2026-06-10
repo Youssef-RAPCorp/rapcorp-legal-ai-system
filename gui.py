@@ -132,6 +132,8 @@ class LegalAIApp(ctk.CTk):
         self._editable_docs:  list[dict] = []
         self._system = None
         self._running = False
+        self._active_pipeline_loop: asyncio.AbstractEventLoop | None = None
+        self._active_pipeline_task: asyncio.Task | None = None
         self._log_q: queue.Queue = queue.Queue()
 
         self._build_ui()
@@ -293,7 +295,17 @@ class LegalAIApp(ctk.CTk):
             height=46, font=ctk.CTkFont(size=14, weight="bold"),
             fg_color="#1a5fa8", hover_color="#103d6e",
         )
-        self._run_btn.grid(row=row, column=0, padx=20, pady=(10, 20), sticky="ew"); row += 1
+        self._run_btn.grid(row=row, column=0, padx=20, pady=(10, 4), sticky="ew"); row += 1
+
+        # Stop button — disabled until a pipeline is running
+        self._stop_btn = ctk.CTkButton(
+            sb, text="■  Stop",
+            command=self._stop_pipeline,
+            height=34, font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#a83a3a", hover_color="#6e2020",
+            state="disabled",
+        )
+        self._stop_btn.grid(row=row, column=0, padx=20, pady=(0, 20), sticky="ew"); row += 1
 
     def _build_main_area(self):
         main = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
@@ -1097,6 +1109,8 @@ class LegalAIApp(ctk.CTk):
                     self._on_run_complete(payload)
                 elif kind == "error":
                     self._on_run_error(payload)
+                elif kind == "cancelled":
+                    self._on_run_cancelled(payload)
         except queue.Empty:
             pass
         self.after(100, self._poll_queue)
@@ -1131,6 +1145,7 @@ class LegalAIApp(ctk.CTk):
 
         self._running = True
         self._run_btn.configure(state="disabled", text="Running…")
+        self._stop_btn.configure(state="normal", text="■  Stop")
         self._progress_bar.start()
         self._tabs.set("Progress")
         self._log("━" * 64)
@@ -1152,14 +1167,22 @@ class LegalAIApp(ctk.CTk):
     def _pipeline_thread(self, situation, state_str, doc_mode, case_files, evidence_files):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        # Expose loop + task so the main thread can request cancellation
+        self._active_pipeline_loop = loop
+        task = loop.create_task(
+            self._pipeline(situation, state_str, doc_mode, case_files, evidence_files)
+        )
+        self._active_pipeline_task = task
         try:
-            result = loop.run_until_complete(
-                self._pipeline(situation, state_str, doc_mode, case_files, evidence_files)
-            )
+            result = loop.run_until_complete(task)
             self._log_q.put(("done", result))
+        except asyncio.CancelledError:
+            self._log_q.put(("cancelled", "Pipeline cancelled by user."))
         except Exception as exc:
             self._log_q.put(("error", f"{exc}\n{traceback.format_exc()}"))
         finally:
+            self._active_pipeline_loop = None
+            self._active_pipeline_task = None
             loop.close()
 
     async def _pipeline(self, situation, state_str, doc_mode, case_files, evidence_files):
@@ -1229,6 +1252,7 @@ class LegalAIApp(ctk.CTk):
         self._progress_bar.stop()
         self._progress_bar.set(0)
         self._run_btn.configure(state="normal", text="▶  Run Analysis & Generate Docs")
+        self._stop_btn.configure(state="disabled", text="■  Stop")
         self._generated_docs = docs
 
         # Populate Generated Documents tab
@@ -1258,8 +1282,33 @@ class LegalAIApp(ctk.CTk):
         self._progress_bar.stop()
         self._progress_bar.set(0)
         self._run_btn.configure(state="normal", text="▶  Run Analysis & Generate Docs")
+        self._stop_btn.configure(state="disabled", text="■  Stop")
         self._log(f"\n✗ Error: {msg}")
         messagebox.showerror("Pipeline error", msg[:400])
+
+    def _on_run_cancelled(self, msg: str):
+        sys.stdout = self._old_stdout
+        self._running = False
+        self._progress_bar.stop()
+        self._progress_bar.set(0)
+        self._run_btn.configure(state="normal", text="▶  Run Analysis & Generate Docs")
+        self._stop_btn.configure(state="disabled", text="■  Stop")
+        self._log(f"\n■ Stopped: {msg}")
+
+    def _stop_pipeline(self):
+        """Cancel the running pipeline task thread-safely."""
+        loop = getattr(self, "_active_pipeline_loop", None)
+        task = getattr(self, "_active_pipeline_task", None)
+        if not (loop and task) or task.done():
+            return
+        self._stop_btn.configure(state="disabled", text="Stopping…")
+        self._log("\n■ Stop requested — cancelling pipeline…")
+        # Cancel from the GUI thread into the worker's loop
+        try:
+            loop.call_soon_threadsafe(task.cancel)
+        except RuntimeError:
+            # Loop already closed — nothing to do
+            pass
 
     # ─── Refine document handler ──────────────────────────────────────────
 
